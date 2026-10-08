@@ -1,7 +1,7 @@
 [project]
 name = "rag-eval"
 version = "0.1.0"
-description = "Add your description here"
+description = "Evaluation-first RAG: a reusable metric harness that measures a RAG pipeline, then shows what the metrics miss"
 readme = "README.md"
 authors = [{ name = "Steven Pequeno", email = "steven@pequeno.in" }]
 requires-python = ">=3.14"

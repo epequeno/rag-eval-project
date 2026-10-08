@@ -2,7 +2,7 @@
 Phase 0 smoke test: one config, N queries, the full metric path, printing
 mean +/- bootstrap 95% CI per metric.
 
-This is the Phase 0 exit criterion from docs/plan.md. Two configs is not this
+This is the project's Phase 0 exit criterion. Two configs is not this
 script's job (that is the Phase 1 sweep); this proves the path runs end to end
 and reports intervals rather than point estimates.
 

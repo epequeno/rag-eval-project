@@ -2,7 +2,7 @@
 Phase 1 sweep driver: per-axis ablation with index reuse.
 
 Each axis varies exactly one field against the baseline and every other axis is
-locked, per the controlled-experiment hygiene in docs/plan.md. Cells that share
+locked, per the project's controlled-experiment hygiene. Cells that share
 ``(chunk_size, chunk_overlap, embedder)`` share one index build — which is why
 ``Index`` is separated from ``Retriever``: the query-time axes (retrieval
 variant, rerank, recency filter) never re-embed the corpus.
