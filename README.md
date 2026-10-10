@@ -27,8 +27,9 @@ are unreliable.
 | 2 | Failure-mode taxonomy (Post 2) | not started |
 | 3 | Judge meta-evaluation (Post 3) | not started |
 
-No results are committed. `results/` is gitignored until a run is reproducible from cached raw
-outputs, and Phase 0 has no test suite yet — see [Tests](#tests).
+**Scope & limitations:** harness and design commitments only — phases 1–3 are unstarted, so
+nothing here is a finding yet. No results are committed: `results/` is gitignored until a run is
+reproducible from cached raw outputs, and Phase 0 has no test suite yet — see [Tests](#tests).
 
 ## What is here
 
