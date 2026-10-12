@@ -104,10 +104,11 @@ test file has been written. This is stated here rather than left implied.
 
 ## Authorship
 
-This is a pedagogical project: **I write the implementation.** Agents advise — explaining concepts,
-reviewing code I wrote, checking a claim against a source, pointing at literature, planning. They do
-not produce the harness or the prose. The deliverables are *explained* artifacts — blog posts, ADRs,
-interview answers — and explaining RRF versus weighted fusion requires having built it.
+**Agent-written, owner-directed** (revised 2026-10-12): agents implement, test, run, and document;
+the owner sets scope and decisions and reviews. The earlier "I write all implementation, agents
+advise" constraint no longer applies. The deliverables stay the same — *explained* artifacts:
+blog posts, ADRs, interview answers — and the numbers, caveats, and what each metric actually
+measures remain the point of the project.
 
 ## License
 
