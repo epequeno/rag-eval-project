@@ -1,8 +1,59 @@
 import hashlib
 import json
 import os
+import re
+import time
 from pathlib import Path
 from typing import Protocol
+
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _call_with_retries(fn, *, attempts: int = 3, sleep: float = 1.0):
+    """
+    Retry a provider call on transient transport failures (DNS blips, timeouts,
+    429, 5xx). Observed 2026-10-14: a `Temporary failure in name resolution`
+    killed a 23-hour sweep run outright because the client's own retries
+    exhausted; one retry layer here keeps a whole job alive through a hiccup.
+    """
+    import openai
+
+    retryable = (
+        openai.APIConnectionError,
+        openai.APITimeoutError,
+        openai.RateLimitError,
+        openai.InternalServerError,
+    )
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except retryable as exc:
+            last = exc
+            if attempt == attempts - 1:
+                break
+            time.sleep(sleep * (2**attempt))
+    assert last is not None
+    raise last
+
+
+def _parse_judge_score(text: str, criterion: str) -> float:
+    """
+    Extract the judge's score from a model response.
+
+    Models are instructed to return only a number but (observed with
+    claude-haiku-4.5 on 2026-10-13) sometimes append an explanation. Take the
+    first number in [0, 1] — numbers like "3 contexts" are outside the scale
+    and skipped. If nothing in range parses, raise rather than fabricate:
+    a silent out-of-range score would poison every downstream metric.
+    """
+    for match in _NUMBER.findall(text):
+        value = float(match)
+        if 0.0 <= value <= 1.0:
+            return value
+    raise ValueError(
+        f"judge returned no score in [0,1] for criterion {criterion!r}: {text!r}"
+    )
 
 
 class Judge(Protocol):
@@ -72,17 +123,25 @@ class OpenRouterJudge:
             },
         )
 
+    # claude-haiku-4.5 ignores "return only the number" and drafts ~500 tokens
+    # of explanation per score; the score is always its leading number, so
+    # capping output keeps cost and latency sane without changing what parses.
+    MAX_OUTPUT_TOKENS = 32
+
     def score(self, criterion: str, prompt: str) -> float:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"You are a RAG evaluation judge. Score {criterion} on a scale of 0.0 to 1.0. Return ONLY the numeric score, nothing else.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.0,
+        response = _call_with_retries(
+            lambda: self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You are a RAG evaluation judge. Score {criterion} on a scale of 0.0 to 1.0. Return ONLY the numeric score, nothing else.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=self.MAX_OUTPUT_TOKENS,
+            )
         )
         text = response.choices[0].message.content.strip()
-        return float(text)
+        return _parse_judge_score(text, criterion)

@@ -79,9 +79,10 @@ HEADLINE_METRICS = ("recall@10", "mrr", "faithfulness", "answer_correctness")
 
 # Deliberately not the generator's family: Post 3 measures self-preference, and a
 # Phase 1 sweep that scores with the generating family pre-bakes that finding.
-# The model id is unverified here (no API key at build time) — check it against
-# OpenRouter's catalogue before the real run.
-JUDGE_MODEL = "anthropic/claude-3.5-haiku"
+# Verified against OpenRouter's /api/v1/models catalogue on 2026-10-13: gemini-
+# 2.5-flash at $0.30/M input is the cheap non-OpenAI judge; claude-haiku-4.5
+# ($1/M) was retired from use on cost grounds.
+JUDGE_MODEL = "google/gemini-2.5-flash"
 
 
 # --------------------------------------------------------------------------- #

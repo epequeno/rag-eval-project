@@ -36,6 +36,7 @@ from typing import Protocol
 import numpy as np
 
 from rag_eval.data import Document
+from rag_eval.judges import _call_with_retries
 
 __all__ = [
     "GENERATOR_TEMPLATE",
@@ -849,10 +850,12 @@ class PromptGenerator:
         prompt = GENERATOR_TEMPLATE.format(
             context=render_contexts(contexts, self.order), query=query
         )
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=self.temperature,
+        response = _call_with_retries(
+            lambda: self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+            )
         )
         return (response.choices[0].message.content or "").strip()
 

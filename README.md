@@ -23,13 +23,14 @@ are unreliable.
 | Phase | What | State |
 |---|---|---|
 | 0 | Harness foundation | **built** — metric API, adapters, loaders, smoke + sweep drivers |
-| 1 | Ablation study (Post 1) | not started |
+| 1 | Ablation study (Post 1) | **data complete** — 9 cells × 2,556 queries in `results/` (gitignored); rerank axis deferred to a follow-up run |
 | 2 | Failure-mode taxonomy (Post 2) | not started |
 | 3 | Judge meta-evaluation (Post 3) | not started |
 
 **Scope & limitations:** harness and design commitments only — phases 1–3 are unstarted, so
 nothing here is a finding yet. No results are committed: `results/` is gitignored until a run is
-reproducible from cached raw outputs, and Phase 0 has no test suite yet — see [Tests](#tests).
+reproducible from cached raw outputs. Phase 0's offline test suite is in place — see
+[Tests](#tests).
 
 ## What is here
 
@@ -50,6 +51,10 @@ scripts/
                          printed as mean ± bootstrap 95% CI
   sweep.py               Phase 1 driver: one axis varied at a time, indexes reused across cells,
                          rows written to results/<config_id>.jsonl
+
+tests/
+  helpers.py             shared fake components + builders (no network, no keys)
+  test_*.py              one file per module plus a smoke.py regression test
 
 docs/
   scratch.ipynb          working notebook
@@ -91,6 +96,8 @@ Requires [`uv`](https://docs.astral.sh/uv/), Python ≥ 3.14, `OPENAI_API_KEY` (
 uv sync
 uv run python scripts/smoke.py --limit 20     # Phase 0 path, prints intervals rather than point estimates
 uv run python scripts/sweep.py --limit 100    # Phase 1, one axis at a time, writes results/<config_id>.jsonl
+# Long runs: `HF_HUB_OFFLINE=1` avoids flaky Hub re-validation once the dataset
+# is cached, and `PYTHONUNBUFFERED=1` keeps progress visible under a pipe.
 ```
 
 Both drivers build their judge, embedder and generator through module-level factories, so
@@ -99,8 +106,35 @@ that have not been written yet.
 
 ## Tests
 
-None yet. `pytest` is configured as a dev dependency and the seam above is already in place, but no
-test file has been written. This is stated here rather than left implied.
+80 tests, offline and keyless. The drivers' `providers` seam takes fake components, so the full
+metric path — including `scripts/smoke.py` itself — runs with no network access.
+
+```bash
+uv run pytest
+```
+
+What the suite pins, by layer:
+
+- **`normalize` / `retrieval_metrics`** — whitespace-insensitive gold matching; recall@k, MRR and
+  nDCG@k against hand-computed values, including the binary per-chunk blind spot that Phase 2
+  engineers.
+- **`aggregate`** — bootstrap CI determinism for a fixed seed, effect sizes, `None`-skipping with
+  per-metric `n`.
+- **`pipeline`** — chunk-span invariants, `published_at` parsing, context truncation, index
+  cache reuse and round-trip, dense retrieval ranking/filtering, RRF tie-breaking.
+- **`harness`** — row schema, refusal detection, judge key-drift guard, `run_config` ordering
+  (retrieve → rerank → truncate → generate → measure) and reranker/config mismatch, null-query
+  bookkeeping.
+- **`judges` / end-to-end metrics** — `CachedJudge` disk caching keyed on
+  (model, criterion, prompt), including persistence across instances; prompt wiring for all four
+  criteria.
+- **`data`** — offline model contracts (`doc_id`, `gold_facts`, `is_null`).
+- **`scripts/smoke.py`** — the Phase 0 exit criterion as a regression test with fake providers,
+  plus the missing-keys guard.
+
+Not unit-tested: `load_queries` / `load_corpus` themselves. They are field-mapping over the HF
+dataset; a mocked test would be an echo test, and the live corpus is exercised by the real smoke
+run.
 
 ## Authorship
 
