@@ -23,7 +23,7 @@ are unreliable.
 | Phase | What | State |
 |---|---|---|
 | 0 | Harness foundation | **built** — metric API, adapters, loaders, smoke + sweep drivers |
-| 1 | Ablation study (Post 1) | **data complete** — 9 cells × 2,556 queries in `results/` (gitignored); rerank axis deferred to a follow-up run |
+| 1 | Ablation study (Post 1) | **data complete** — 10 cells × 2,556 queries in `results/` (gitignored), all axes incl. rerank |
 | 2 | Failure-mode taxonomy (Post 2) | not started |
 | 3 | Judge meta-evaluation (Post 3) | not started |
 
