@@ -25,7 +25,7 @@ are unreliable.
 | 0 | Harness foundation | **built** — metric API, adapters, loaders, smoke + sweep drivers |
 | 1 | Ablation study (Post 1) | **data complete** — 10 cells × 2,556 queries in `results/` (gitignored), all axes incl. rerank |
 | 2 | Failure-mode taxonomy (Post 2) | **data complete** — 6 engineered classes, paired control/engineered, coverage matrix in `results/failures/` |
-| 3 | Judge meta-evaluation (Post 3) | not started |
+| 3 | Judge meta-evaluation (Post 3) | **data complete** — 60 hand-labeled rows, 4 judges × framing/consistency arms, κ/α tables in `results/meta/` |
 
 **Scope & limitations:** harness and design commitments only — phases 1–3 are unstarted, so
 nothing here is a finding yet. No results are committed: `results/` is gitignored until a run is
@@ -47,6 +47,7 @@ src/rag_eval/
   normalize.py           the single whitespace normalizer used for all gold matching
   controlled.py          Phase 2: six engineered failure classes as paired
                          control/engineered slices (self-authored, deterministic)
+  agreement.py           Cohen's kappa + Krippendorff's alpha (Phase 3 statistics)
 
 scripts/
   smoke.py               Phase 0 exit criterion: one config, the full metric path,
@@ -55,6 +56,8 @@ scripts/
                          rows written to results/<config_id>.jsonl
   failures.py            Phase 2 driver: runs every engineered slice through the metric path
                          and prints the per-class tables + coverage matrix
+  meta_eval.py           Phase 3 driver: hand-labeled gold + multi-judge arms (sensitivity,
+                         framing, self-preference, test-retest) -> kappa/alpha tables
 
 tests/
   helpers.py             shared fake components + builders (no network, no keys)

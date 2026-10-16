@@ -110,8 +110,19 @@ class OpenRouterJudge:
     Judge that uses an OpenRouter model to score criterion
     """
 
-    def __init__(self, model: str = "openai/gpt-4o-mini"):
+    def __init__(
+        self,
+        model: str = "openai/gpt-4o-mini",
+        temperature: float = 0.0,
+        max_output_tokens: int = 32,
+    ):
         self.model = model
+        self.temperature = temperature
+        # claude-haiku-4.5 ignores "return only the number" and drafts prose
+        # before the score; 32 tokens is enough for models that comply, longer
+        # for ones that preamble first (the parser takes the first number in
+        # [0,1], so the preamble is harmless once the number is in range).
+        self.max_output_tokens = max_output_tokens
         from openai import OpenAI
 
         self.client = OpenAI(
@@ -122,11 +133,6 @@ class OpenRouterJudge:
                 "X-Title": "rag-eval-harness",
             },
         )
-
-    # claude-haiku-4.5 ignores "return only the number" and drafts ~500 tokens
-    # of explanation per score; the score is always its leading number, so
-    # capping output keeps cost and latency sane without changing what parses.
-    MAX_OUTPUT_TOKENS = 32
 
     def score(self, criterion: str, prompt: str) -> float:
         response = _call_with_retries(
@@ -139,8 +145,8 @@ class OpenRouterJudge:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.0,
-                max_tokens=self.MAX_OUTPUT_TOKENS,
+                temperature=self.temperature,
+                max_tokens=self.max_output_tokens,
             )
         )
         text = response.choices[0].message.content.strip()
