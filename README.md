@@ -24,7 +24,7 @@ are unreliable.
 |---|---|---|
 | 0 | Harness foundation | **built** — metric API, adapters, loaders, smoke + sweep drivers |
 | 1 | Ablation study (Post 1) | **data complete** — 10 cells × 2,556 queries in `results/` (gitignored), all axes incl. rerank |
-| 2 | Failure-mode taxonomy (Post 2) | not started |
+| 2 | Failure-mode taxonomy (Post 2) | **data complete** — 6 engineered classes, paired control/engineered, coverage matrix in `results/failures/` |
 | 3 | Judge meta-evaluation (Post 3) | not started |
 
 **Scope & limitations:** harness and design commitments only — phases 1–3 are unstarted, so
@@ -45,12 +45,16 @@ src/rag_eval/
   aggregate.py           bootstrap confidence intervals, effect sizes
   data.py                MultiHop-RAG and controlled-corpus loaders
   normalize.py           the single whitespace normalizer used for all gold matching
+  controlled.py          Phase 2: six engineered failure classes as paired
+                         control/engineered slices (self-authored, deterministic)
 
 scripts/
   smoke.py               Phase 0 exit criterion: one config, the full metric path,
                          printed as mean ± bootstrap 95% CI
   sweep.py               Phase 1 driver: one axis varied at a time, indexes reused across cells,
                          rows written to results/<config_id>.jsonl
+  failures.py            Phase 2 driver: runs every engineered slice through the metric path
+                         and prints the per-class tables + coverage matrix
 
 tests/
   helpers.py             shared fake components + builders (no network, no keys)
