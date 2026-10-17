@@ -27,10 +27,11 @@ are unreliable.
 | 2 | Failure-mode taxonomy (Post 2) | **data complete** — 6 engineered classes, paired control/engineered, coverage matrix in `results/failures/` |
 | 3 | Judge meta-evaluation (Post 3) | **data complete** — 60 hand-labeled rows, 4 judges × framing/consistency arms, κ/α tables in `results/meta/` |
 
-**Scope & limitations:** harness and design commitments only — phases 1–3 are unstarted, so
-nothing here is a finding yet. No results are committed: `results/` is gitignored until a run is
-reproducible from cached raw outputs. Phase 0's offline test suite is in place — see
-[Tests](#tests).
+**Scope & limitations:** the harness and all three experiments (ablation, failure coverage, judge
+meta-evaluation) are built, with reproducible raw data in `results/` — nothing here is a *published
+finding* yet; the blog posts that interpret the numbers are the remaining deliverable. No results
+are committed: `results/` stays gitignored, and every table is re-derivable from cached raw outputs
+and seeded statistics.
 
 ## What is here
 
@@ -113,7 +114,7 @@ that have not been written yet.
 
 ## Tests
 
-80 tests, offline and keyless. The drivers' `providers` seam takes fake components, so the full
+107 tests, offline and keyless. The drivers' `providers` seam takes fake components, so the full
 metric path — including `scripts/smoke.py` itself — runs with no network access.
 
 ```bash
