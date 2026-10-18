@@ -23,3 +23,7 @@ results/
 # had to be stripped from rag-control-cite's published history after being committed
 # there; this rule stops that repeating.
 docs/audit-fix-plan-*.md
+
+# The publishing plan for the write-up. The README describes the project; this
+describes what to post, so it is not published.
+docs/post-plan.md

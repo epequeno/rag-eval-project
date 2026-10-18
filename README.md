@@ -1,35 +1,27 @@
 # rag-eval-project
 
-An evaluation-first RAG project: a three-part series that measures a RAG pipeline carefully, then
-shows what the metrics miss, then questions the measuring tools themselves.
+An evaluation-first RAG project: a reusable metric harness applied to a RAG pipeline in three
+phases — measure it carefully, show what the metrics miss, then question the measuring tools.
 
 **Evaluation is the project. The pipeline is deliberately boring** — embed → vector DB →
 chatbot, by design. The contribution is the measurement: where the system breaks, why, and
 what each metric actually measures.
-
-## The arc
-
-| # | Post | Question it answers |
-|---|---|---|
-| 1 | I measured RAG carefully — here's what the numbers said | Which knobs actually move quality, and by how much? |
-| 2 | The metrics from Post 1 are blind to most real failures | Which metric catches which engineered failure? |
-| 3 | And the eval tools themselves are unreliable | How far can an LLM-as-judge be trusted? |
-
-Each post escalates the skepticism: the numbers lie → the metrics are blind → the measuring tools
-are unreliable.
 
 ## Status
 
 | Phase | What | State |
 |---|---|---|
 | 0 | Harness foundation | **built** — metric API, adapters, loaders, smoke + sweep drivers |
-| 1 | Ablation study (Post 1) | **data complete** — 10 cells × 2,556 queries; corrected reanalysis in `reports/phase1.md` |
-| 2 | Failure-mode taxonomy (Post 2) | **regenerated** — 6 engineered classes, 24 queries per arm, ground-truth matrix in `reports/phase2.md` |
-| 3 | Judge meta-evaluation (Post 3) | **v1 analyzed, v2 sample ready** — v1's degenerate gold is documented in `reports/phase3.md`; `sample_v2` awaits hand labels |
+| 1 | Ablation study — which knobs actually move quality, and by how much? | **data complete** — 10 cells × 2,556 queries; corrected reanalysis in `reports/phase1.md` |
+| 2 | Failure-mode taxonomy — which metric catches which engineered failure? | **regenerated** — 6 engineered classes, 24 queries per arm, ground-truth matrix in `reports/phase2.md` |
+| 3 | Judge meta-evaluation — how far can an LLM-as-judge be trusted? | **v1 analyzed, v2 sample ready** — v1's degenerate gold is documented in `reports/phase3.md`; `sample_v2` awaits hand labels |
+
+The phases escalate the skepticism: the numbers lie → the metrics are blind → the measuring tools
+are unreliable.
 
 **Scope & limitations:** the harness and all three experiments are built, with reproducible raw
-data in `results/` — nothing here is a *published finding* yet; the blog posts that interpret the
-numbers are the remaining deliverable. `results/` stays gitignored. The hand-labeled artifacts are
+data in `results/` — every number below comes from a completed run, and none of it is written up
+yet; the interpretation is the remaining work. `results/` stays gitignored. The hand-labeled artifacts are
 committed under `data/labels/`, because a label set that exists only on one machine is not
 reproducible. Query counts differ by view, deliberately: the sweep ran all **2,556** queries, while
 the Phase 1 tables cover the **2,255** answerable ones. The 301 null queries test refusal
@@ -38,7 +30,7 @@ why `reports/phase1.md` shows `n = 2255` against a table that says 2,556.
 
 ## What the corrected numbers already show
 
-These are measurements, not the posts' arguments:
+These are measurements, not arguments:
 
 - **The baseline refuses 71.3% of answerable queries.** Among the 28.7% it answers, accuracy is
   96.4%; that ratio is 95–97% in all ten cells. Every Phase 1 "quality" delta is predominantly a
@@ -68,7 +60,7 @@ These are measurements, not the posts' arguments:
 - **Phase 3 v1's gold set was degenerate.** All 60 faithfulness labels were 1, and correctness was
   exactly "is the answer a refusal". The report prints `undefined (constant gold)` instead of a
   meaningless κ, and `sample_v2` stratifies across refusals, correct answers and answered-but-wrong
-  answers (57 / 40 / 23). It is ready to label; the labels are owner work, not something a script
+  answers (57 / 40 / 23). It is ready to label; the labels are hand work, not something a script
   can invent.
 - **The apparent "self-preference" was answer quality.** Holding the answer fixed and varying only
   the claimed author moves scores by at most 0.08 (mostly 0.00). Comparing two different answer
@@ -156,12 +148,12 @@ unit does not.
 
 ## Design commitments
 
-These are the decisions that make the later posts cheap rather than expensive rewrites:
+These are the decisions that keep a later re-run cheap rather than an expensive rewrite:
 
 - **Per-instance arrays, never early aggregation.** Aggregation and CIs are a separate, swappable
-  step. Aggregate inside the metric and every Post 3 judge-swap becomes a full re-run.
+  step. Aggregate inside the metric and every Phase 3 judge-swap becomes a full re-run.
 - **The judge is a parameter, not a global.** Anything that scores an answer takes the judge as an
-  argument, so Post 3 can swap it without touching the harness.
+  argument, so Phase 3 can swap it without touching the harness.
 - **Judge caching from the start**, keyed on `(model, criterion, prompt, params)`. Entries store
   the raw completion and the generation parameters alongside the parsed score; a parser change
   must remain auditable.
@@ -260,14 +252,6 @@ What the suite pins, by layer:
 Not unit-tested: `load_queries` / `load_corpus` themselves (field mapping over the HF dataset; a
 mocked test would be an echo test), and the network paths of the drivers, which are exercised by
 real runs.
-
-## Authorship
-
-**Agent-written, owner-directed** (revised 2026-10-12): agents implement, test, run, and document;
-the owner sets scope and decisions and reviews. The earlier "I write all implementation, agents
-advise" constraint no longer applies. The deliverables stay the same — *explained* artifacts:
-blog posts, ADRs, interview answers — and the numbers, caveats, and what each metric actually
-measures remain the point of the project.
 
 ## License
 
