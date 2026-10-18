@@ -31,7 +31,10 @@ are unreliable.
 data in `results/` — nothing here is a *published finding* yet; the blog posts that interpret the
 numbers are the remaining deliverable. `results/` stays gitignored. The hand-labeled artifacts are
 committed under `data/labels/`, because a label set that exists only on one machine is not
-reproducible.
+reproducible. Query counts differ by view, deliberately: the sweep ran all **2,556** queries, while
+the Phase 1 tables cover the **2,255** answerable ones. The 301 null queries test refusal
+robustness and have no gold answer to score, so they are excluded from the ablations — which is
+why `reports/phase1.md` shows `n = 2255` against a table that says 2,556.
 
 ## What the corrected numbers already show
 
@@ -55,7 +58,9 @@ These are measurements, not the posts' arguments:
 - **Phase 2 has two clean blind spots.** `retrieval_miss`: faithfulness stays at 1.0 while the
   answer is withheld (−1.0 correctness). `hallucination`: a context-supported but wrong answer is
   invisible to faithfulness, relevance, and every retrieval metric, while correctness catches it
-  (−1.0). `chunk_boundary` and `false_neighbor` move retrieval metrics without moving the answer —
+  (−1.0). One metric moves the *wrong* way there: `context_precision` rises by +0.333 while the
+  answer becomes wrong, which is worth remembering before reading a higher score as a better
+  system. `chunk_boundary` and `false_neighbor` move retrieval metrics without moving the answer —
   metric false alarms relative to answer quality, not blind spots. `lost_in_middle` produced no
   phenomenon at all (correctness unchanged when the evidence moved from first to fifth in the
   prompt), which is reported as a null result. `evidence_split` has a weak, non-significant
@@ -71,9 +76,12 @@ These are measurements, not the posts' arguments:
   answers were better, not which author the judge preferred.
 - **Judges move between identical runs.** Re-running the v1 default arm on the same prompts at
   temperature 0 changed 0–2 of 60 judgments per judge/criterion; one gemini correctness row flipped
-  and moved that κ from 1.000 to 0.960. Prompt framing is larger still: the terse faithfulness
-  rubric moves the mean by −0.555 (κ = 0.147 against the default rubric), and terse correctness
-  moves it by +0.467. These are floors on judge reliability, not noise to be averaged away.
+  and moved that κ from 1.000 to 0.960. Temperature is not the escape hatch either: at temperature
+  0.7 the faithfulness judge flipped **11 of 60** rows and α across three runs fell to **0.518**, so
+  roughly half its apparent variance is noise. Prompt framing is larger still: the terse
+  faithfulness rubric moves the mean by −0.555 (κ = 0.147 against the default rubric), and terse
+  correctness moves it by +0.467. These are floors on judge reliability, not noise to be averaged
+  away.
 
 ## What is here
 
@@ -103,6 +111,8 @@ scripts/
                          per-question-type tables -> reports/phase1.md
   retrieval_audit.py     candidate-level retrieval audit over the cached indexes; query
                          embeddings only -> reports/retrieval_audit.md
+  chunk_ceiling.py       offline, keyless: gold-fact reachability per chunk size
+                         -> reports/chunk_ceiling.md
   failures.py            Phase 2 driver: engineered slices + ground-truth coverage matrix
                          -> reports/phase2.md
   meta_eval.py           Phase 3 driver: stratified sample, multi-judge arms (sensitivity,
@@ -180,7 +190,9 @@ What the chunking data actually says: gold facts are 93 / 161 / 257 characters a
 (max 538). The measured ceiling — the share of facts contained in some chunk of their source
 document — is 1.0000 at 1024 characters and 0.99967 at 512. So chunk-boundary loss is **two facts
 out of 6,084**, both longer than 512 characters; it is not a driver of the chunk-size axis. Phase 2
-engineers the split explicitly because the natural grid does not produce it often.
+engineers the split explicitly because the natural grid does not produce it often. All three
+figures are reproducible offline and keyless: `scripts/chunk_ceiling.py` recomputes them from the
+corpus and the chunker alone — no embeddings, no API keys — and writes `reports/chunk_ceiling.md`.
 
 The corpus is not redistributed here; `data.py` downloads it. Null queries (11.8%) test refusal
 robustness, temporal queries stress time-aware retrieval.
@@ -200,6 +212,7 @@ uv run python scripts/failures.py             # Phase 2, writes reports/phase2.m
 HF_HUB_OFFLINE=1 uv run python scripts/reanalyze.py
 # Candidate-level retrieval audit (query embeddings only, cached after the first run):
 HF_HUB_OFFLINE=1 uv run python scripts/retrieval_audit.py
+HF_HUB_OFFLINE=1 uv run python scripts/chunk_ceiling.py    # corpus + chunker only; no keys, no results/
 
 # Phase 3: build a stratified sample, hand-label it, then judge and report.
 uv run python scripts/meta_eval.py --step sample --n 120 --name v2
