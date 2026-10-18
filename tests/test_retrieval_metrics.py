@@ -1,4 +1,4 @@
-"""Deterministic retrieval metrics: recall@k, MRR, nDCG@k.
+"""Deterministic retrieval metrics: recall, hits, MAP, MRR, fact-level nDCG.
 
 These are the numbers every retrieval claim in Posts 1-3 rests on, so expected
 values are computed by hand rather than mirrored from the implementation.
@@ -11,8 +11,10 @@ import pytest
 from rag_eval.harness import retrieval_metric_names
 from rag_eval.retrieval_metrics import (
     evaluate_retrieval,
+    hits_at_k,
     hits_in_chunk,
     is_relevant,
+    map_at_k,
     mrr,
     ndcg_at_k,
     recall_at_k,
@@ -49,6 +51,25 @@ def test_recall_at_k_empty_gold_is_zero():
     assert recall_at_k(["anything"], [], 5) == 0.0
 
 
+def test_hits_at_k_is_any_hit():
+    found = ["irrelevant", "The company was founded in 1999."]
+    assert hits_at_k(found, [FACT1], 1) == 0.0
+    assert hits_at_k(found, [FACT1], 2) == 1.0
+
+
+def test_map_at_k_counts_each_fact_once():
+    # Rank 1 covers FACT1 and FACT2 (precision 2/1), rank 2 repeats them.
+    found = ["The company was founded in 1999. It raised $10 million in seed funding.", FACT1]
+    assert map_at_k(found, [FACT1, FACT2], 2) == pytest.approx(2 / min(2, 2))
+    # Rank 2 adds FACT2 after FACT1 at rank 1: AP = 1/1 + 1/2, / 2.
+    split = [FACT1, FACT2]
+    assert map_at_k(split, [FACT1, FACT2], 2) == pytest.approx((1 + 1 / 2) / 2)
+
+
+def test_map_at_k_empty_gold_is_zero():
+    assert map_at_k(["anything"], [], 10) == 0.0
+
+
 def test_mrr_is_reciprocal_of_first_relevant_rank():
     found = ["irrelevant", "The company was founded in 1999."]
     assert mrr(found, [FACT1]) == pytest.approx(0.5)
@@ -58,19 +79,38 @@ def test_mrr_is_reciprocal_of_first_relevant_rank():
 
 
 def test_ndcg_hand_computed():
-    # Relevant chunk at rank 2 of 3: DCG = 1/log2(3), IDCG = 1.0.
+    # One fact at rank 2 of 3: DCG = 1/log2(3), IDCG = 1.
     found = ["irrelevant", "The company was founded in 1999.", "noise"]
     assert ndcg_at_k(found, [FACT1], 3) == pytest.approx(1.0 / math.log2(3))
-    # At k=1 the relevant chunk is outside the window.
     assert ndcg_at_k(found, [FACT1], 1) == 0.0
 
 
-def test_ndcg_counts_a_chunk_once_when_it_contains_any_fact():
-    # Both chunks are "relevant" through FACT1 alone; FACT2 is never retrieved,
-    # yet DCG == IDCG gives nDCG 1.0. This binary-per-chunk blind spot is
-    # exactly what Phase 2's coverage gaps engineer.
-    found = ["The company was founded in 1999."] * 2
-    assert ndcg_at_k(found, [FACT1, FACT2], 2) == pytest.approx(1.0)
+def test_ndcg_is_one_when_every_fact_is_in_the_first_chunk():
+    chunk = "The company was founded in 1999. It raised $10 million in seed funding."
+    assert ndcg_at_k([chunk], [FACT1, FACT2], 10) == pytest.approx(1.0)
+
+
+def test_ndcg_does_not_invert_chunk_granularity():
+    together = ["The company was founded in 1999. It raised $10 million in seed funding."]
+    split = ["The company was founded in 1999.", "It raised $10 million in seed funding."]
+    # All facts in one chunk is the ideal (1.0); splitting them across ranks is
+    # discounted but still positive. The binary per-chunk definition did the
+    # opposite: 0.5 for the perfect chunk and 1.0 for the split.
+    assert ndcg_at_k(together, [FACT1, FACT2], 10) == pytest.approx(1.0)
+    split_value = ndcg_at_k(split, [FACT1, FACT2], 10)
+    assert split_value == pytest.approx((1 + 1 / math.log2(3)) / 2)
+    assert 0.0 < split_value < 1.0
+
+
+def test_ndcg_duplicate_chunks_cannot_exceed_one():
+    chunk = "The company was founded in 1999."
+    value = ndcg_at_k([chunk] * 10, [FACT1], 10)
+    assert value == pytest.approx(1.0)
+
+
+def test_ndcg_is_bounded_on_multi_fact_chunks():
+    chunk = "The company was founded in 1999. It raised $10 million in seed funding."
+    assert 0.0 <= ndcg_at_k([chunk, chunk, chunk], [FACT1, FACT2], 10) <= 1.0
 
 
 def test_evaluate_retrieval_emits_harness_metric_names_in_order():

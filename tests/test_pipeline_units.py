@@ -17,6 +17,7 @@ from helpers import (
 )
 
 from rag_eval.pipeline import (
+    BM25Retriever,
     DenseRetriever,
     Index,
     RecursiveChunker,
@@ -271,7 +272,7 @@ def test_dense_retriever_filters_by_publication_date():
         make_chunk("apple jun", published_at="2023-06-01 00:00:00"),
         make_chunk("apple undated", published_at=None),
     ]
-    vectors = np.asarray([[1, 0, 0], [0.9, 0, 0], [0, 1, 0]], dtype=np.float32)
+    vectors = np.asarray([[1, 0, 0], [0.8, 0.6, 0], [0, 1, 0]], dtype=np.float32)
     index = Index(chunks=chunks, vectors=vectors)
     embedder = DictEmbedder({"apple query": [1, 0, 0]})
     cutoff = parse_published_at("2023-03-01")
@@ -336,3 +337,33 @@ def test_pipeline_config_id_is_deterministic_and_sensitive():
     assert make_config().id != make_config(chunk_size=2048).id
     assert make_config().id != make_config(recency_cutoff="2023-06-01").id
     assert len(make_config().id) == 16
+
+def test_index_rejects_unnormalized_vectors():
+    # DenseRetriever treats dot product as cosine; an unnormalized embedder must
+    # fail loudly instead of silently changing the ranking.
+    with pytest.raises(ValueError, match="L2-normalized"):
+        Index(
+            chunks=[make_chunk("apple news")],
+            vectors=np.asarray([[2.0, 0.0]], dtype=np.float32),
+        )
+
+
+def test_bm25_filters_before_truncating_to_k():
+    # The top-scoring chunks are all after the cutoff. Retrieving k first would
+    # return zero results even though two qualifying chunks exist.
+    chunks = [
+        make_chunk("apple news one", published_at="2023-01-01 00:00:00"),
+        make_chunk("apple news two", published_at="2023-01-02 00:00:00"),
+        make_chunk("apple news three", published_at="2023-01-03 00:00:00"),
+        make_chunk("apple apple apple later", published_at="2023-06-01 00:00:00"),
+        make_chunk("apple apple apple latest", published_at="2023-06-02 00:00:00"),
+    ]
+    index = Index(chunks=chunks, vectors=np.eye(5, dtype=np.float32))
+    items = BM25Retriever(index=index).retrieve(
+        "apple",
+        k_recall=2,
+        published_before=parse_published_at("2023-03-01"),
+    )
+    assert len(items) == 2
+    assert all(item.chunk.published_at.year == 2023 for item in items)
+    assert all(item.chunk.published_at.month <= 3 for item in items)

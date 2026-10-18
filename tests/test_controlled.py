@@ -115,19 +115,49 @@ def test_evidence_split_preserves_recall_in_both_arms():
         assert metrics(e)["recall@10"] == pytest.approx(1.0)
 
 
-def test_lost_in_middle_moves_fact_rank_not_recall10():
+def test_lost_in_middle_moves_prompt_position_not_retrieval_rank():
     s = lost_in_middle_slice()
     c, e = s.control[0], s.engineered[0]
     fact = normalize(c.gold_facts[0])
+    # Both arms have the fact at retrieval rank 1, so every retrieval metric is
+    # identical; only the rendered prompt moves it.
+    assert c.contexts == e.contexts
     assert normalize(c.contexts[0]) == fact
-    fact_ix = next(i for i, ctx in enumerate(e.contexts) if normalize(fact) in normalize(ctx))
-    assert fact_ix == 4  # fifth of nine contexts: the engineered position
-    assert metrics(c)["recall@10"] == pytest.approx(1.0)
-    assert metrics(e)["recall@10"] == pytest.approx(1.0)
+    assert c.prompt_contexts() == c.contexts
+    assert e.prompt_contexts()[0] != fact
+    fact_position = next(
+        i for i, ctx in enumerate(e.prompt_contexts()) if normalize(fact) in normalize(ctx)
+    )
+    assert fact_position == 4  # fifth of nine rendered contexts
+    assert metrics(c) == metrics(e)
 
 
-def test_hallucination_adds_lookalike_distractor():
+def test_hallucination_holds_window_size_and_rank_fixed():
     s = hallucination_slice()
     for c, e in zip(s.control, s.engineered):
-        assert len(c.contexts) == 1
-        assert len(e.contexts) == 2
+        assert len(c.contexts) == len(e.contexts) == 2
+        assert normalize(c.contexts[0]) == normalize(e.contexts[0])  # true fact first
+        assert c.answer != e.answer  # control correct, engineered contradictory year
+        # Both claims are present in a retrieved context (the sentence continues
+        # after the year, so match without the trailing period).
+        assert c.answer.rstrip(".") in c.contexts[0]
+        # The wrong year is supported by the second context: a faithful but
+        # incorrect answer, which is the point of the class.
+        assert e.answer.rstrip(".") in e.contexts[1]
+
+
+def test_hallucination_retrieval_metrics_are_identical():
+    s = hallucination_slice()
+    for c, e in zip(s.control, s.engineered):
+        assert metrics(c)["recall@1"] == metrics(e)["recall@1"] == pytest.approx(1.0)
+        assert metrics(c)["mrr"] == metrics(e)["mrr"] == pytest.approx(1.0)
+
+
+def test_prompt_order_must_be_a_permutation():
+    from rag_eval.controlled import EngineeredQuery
+
+    eq = EngineeredQuery(
+        query="q", gold_answer="a", gold_facts=("f",), contexts=("one", "two"), prompt_order=(0, 0)
+    )
+    with pytest.raises(ValueError):
+        eq.prompt_contexts()

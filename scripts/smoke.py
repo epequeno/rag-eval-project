@@ -20,8 +20,14 @@ import os
 import sys
 
 from rag_eval.aggregate import aggregate
-from rag_eval.data import Document, Query, load_corpus, load_queries
-from rag_eval.harness import RETRIEVAL_KS, null_summary, run_config
+from rag_eval.data import DATASET_REVISION, Document, Query, load_corpus, load_queries
+from rag_eval.harness import (
+    RETRIEVAL_KS,
+    answered_rows,
+    coverage_summary,
+    null_summary,
+    run_config,
+)
 from rag_eval.judges import CachedJudge, Judge, OpenRouterJudge
 from rag_eval.pipeline import (
     DenseRetriever,
@@ -50,7 +56,9 @@ def default_config() -> PipelineConfig:
         k_final=None,
         char_budget=8000,
         generator="openai/gpt-4o-mini",
-        generator_prompt="smoke:v1",
+        generator_prompt=PromptGenerator.prompt_id(),
+        judge="openai/gpt-4o-mini",
+        dataset_revision=DATASET_REVISION,
     )
 
 
@@ -66,7 +74,9 @@ def build_components(
     """
     providers = providers or {}
     embedder: Embedder = providers.get("embedder") or OpenAIEmbedder()
-    generator: Generator = providers.get("generator") or PromptGenerator()
+    generator: Generator = providers.get("generator") or PromptGenerator(
+        model=config.generator
+    )
     if "judge" in providers:
         judge: Judge | None = providers["judge"]
     else:
@@ -124,11 +134,36 @@ def main(
             f"{stats['ci_upper']:9.3f} {stats['n']:5d}"
         )
 
+    candidate = aggregate([row.candidate_metrics for row in rows if row.candidate_metrics])
+    if candidate:
+        print("\ncandidate retrieval (before truncation)")
+        for name in ("recall@10", "ndcg@10", "map@10"):
+            stats = candidate.get(name)
+            if stats:
+                print(
+                    f"{name:<20} {stats['mean']:7.3f} {stats['ci_lower']:9.3f} "
+                    f"{stats['ci_upper']:9.3f} {stats['n']:5d}"
+                )
+
     n_nulls, accuracy = null_summary(rows)
     if n_nulls:
         print(f"\nnull queries: {n_nulls}  refusal accuracy: {accuracy:.3f}")
     else:
-        print("\nnull queries: none in this slice (retrieval mean covers all queries)")
+        print("\nnull queries: none in this slice")
+
+    _answerable, coverage = coverage_summary(rows)
+    if coverage is not None:
+        answered = answered_rows(rows)
+        correctness = [
+            row.metrics["answer_correctness"]
+            for row in answered
+            if row.metrics.get("answer_correctness") is not None
+        ]
+        mean = sum(correctness) / len(correctness) if correctness else float("nan")
+        print(
+            f"answerable: {_answerable}  answered: {coverage:.1%}  "
+            f"correctness|answered: {mean:.3f}"
+        )
 
     scored = [row for row in rows if not row.is_null]
     if scored:

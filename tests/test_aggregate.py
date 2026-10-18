@@ -7,7 +7,12 @@ must be skipped, never counted as zero.
 import numpy as np
 import pytest
 
-from rag_eval.aggregate import aggregate, bootstrap_ci, effect_size, effect_size_paired
+from rag_eval.aggregate import (
+    aggregate,
+    benjamini_hochberg,
+    bootstrap_ci,
+    effect_size_paired,
+)
 
 VALUES = [0.0, 0.25, 0.5, 0.75, 1.0]
 
@@ -31,17 +36,26 @@ def test_bootstrap_ci_constant_values_collapse_to_the_constant():
     assert out["ci_upper"] == pytest.approx(0.5)
 
 
-def test_effect_size_reports_delta_and_significance():
-    out = effect_size([1.0] * 10, [0.0] * 10)
+def test_bootstrap_ci_single_value_has_undefined_std():
+    # ddof=1 is undefined for n=1; nan silently poisons a table.
+    out = bootstrap_ci([0.5])
+    assert out["std"] is None
+    assert out["ci_lower"] == pytest.approx(0.5)
+
+
+def test_effect_size_paired_reports_delta_ci_and_p_value():
+    out = effect_size_paired([1.0] * 10, [0.0] * 10)
     assert out["delta"] == pytest.approx(1.0)
     assert out["ci_lower"] == pytest.approx(1.0)
     assert out["ci_upper"] == pytest.approx(1.0)
+    assert out["p_value"] == pytest.approx(0.0)
     assert out["significant"] is True
 
 
-def test_effect_size_null_difference_is_not_significant():
-    out = effect_size([0.5] * 10, [0.5] * 10)
+def test_effect_size_paired_null_difference_is_not_significant():
+    out = effect_size_paired([0.5] * 10, [0.5] * 10)
     assert out["delta"] == pytest.approx(0.0)
+    assert out["p_value"] == pytest.approx(1.0)
     assert out["significant"] is False
 
 
@@ -51,6 +65,19 @@ def test_effect_size_paired():
     out = effect_size_paired(a, b)
     assert out["delta"] == pytest.approx(1.0)
     assert out["significant"] is True
+
+
+def test_benjamini_hochberg_matches_hand_computation():
+    # p = [0.01, 0.04, 0.03, 0.20], m = 4
+    # sorted: 0.01 (rank 1) -> 0.04; 0.03 (rank 2) -> 0.06; 0.04 (rank 3) -> 0.0533;
+    # 0.20 (rank 4) -> 0.20; enforce monotonicity from the largest, so ranks 2 and
+    # 3 both become 0.0533. Back in input order: [0.04, 0.0533, 0.0533, 0.20].
+    adjusted = benjamini_hochberg([0.01, 0.04, 0.03, 0.20])
+    assert adjusted == pytest.approx([0.04, 0.0533333333, 0.0533333333, 0.20])
+
+
+def test_benjamini_hochberg_empty():
+    assert benjamini_hochberg([]) == []
 
 
 def test_aggregate_skips_none_and_unions_keys_across_rows():
@@ -64,6 +91,7 @@ def test_aggregate_skips_none_and_unions_keys_across_rows():
     assert out["recall@10"]["n"] == 2
     assert out["faithfulness"]["mean"] == pytest.approx(0.9)
     assert out["faithfulness"]["n"] == 1
+    assert out["faithfulness"]["std"] is None
     assert out["answer_relevance"]["n"] == 1
     assert "mrr" not in out
 

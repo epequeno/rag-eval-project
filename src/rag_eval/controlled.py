@@ -6,14 +6,29 @@ Post 2's differentiator (per plan.md) is not taxonomy breadth — Leung et al.
 (arXiv 2510.13975) already enumerate 16 error types. The question here is:
 *which Phase 1 metric catches which engineered failure?* So each class is a
 pair of arms — ``control`` (failure absent) and ``engineered`` (failure
-applied) — built from the same queries, differing only in the engineered
-perturbation. Every arm is deterministic and self-authored: no network, no
-randomness, no LLM at build time.
+applied) — built from the same queries.
 
-Answers are pre-authored where the class engineers the generator's behavior
-(chunk boundaries, ranking, retrieval miss) and left to the real generator
-where the phenomenon *is* the generator's behavior (lost-in-the-middle,
-hallucination, multi-hop synthesis).
+Design rules (revised 2026-10-17)
+---------------------------------
+The first version claimed the arms differ "only in the engineered
+perturbation", but three classes also changed the window size or the evidence
+rank, so their metric deltas were mechanical. Now:
+
+* ``contexts`` is the **metric** order (retrieval rank). ``prompt_order`` is an
+  optional permutation used only when rendering the generator prompt, so a
+  position failure can be engineered without moving the evidence in the
+  retrieval ranking.
+* ``hallucination`` keeps a two-context window in both arms and pre-authors the
+  answer, so the class measures whether a supported-but-wrong answer is caught,
+  not whether a particular model happens to hallucinate.
+* ``lost_in_middle`` keeps the evidence at rank 1 in both arms and moves it
+  only in the rendered prompt. Answers are left to the real generator, because
+  the phenomenon *is* the generator's behaviour; if it does not appear, that is
+  a null result and must be reported as one.
+
+Every arm is deterministic and self-authored: no network, no randomness, no
+LLM at build time. Answers are pre-authored where the class engineers the
+answer; generated live only where generation is the phenomenon.
 """
 
 from __future__ import annotations
@@ -29,12 +44,13 @@ from dataclasses import dataclass
 class EngineeredQuery:
     """
     One engineered query, including the retrieved-context window exactly as the
-    generator and the metrics will see it.
+    metrics see it.
 
+    ``contexts`` are rank-ordered and feed the retrieval metrics.
+    ``prompt_order`` optionally permutes them for the generator prompt only.
     ``gold_facts`` feed the deterministic retrieval metrics (substring
-    containment, whitespace-normalized); ``contexts`` are rank-ordered. When
-    ``answer`` is set, the runner uses it verbatim; when ``None`` the real
-    generator produces it (for classes where generation is the phenomenon).
+    containment, whitespace-normalized). When ``answer`` is set, the runner uses
+    it verbatim; when ``None`` the real generator produces it.
     """
 
     query: str
@@ -42,6 +58,14 @@ class EngineeredQuery:
     gold_facts: tuple[str, ...]
     contexts: tuple[str, ...]
     answer: str | None = None
+    prompt_order: tuple[int, ...] | None = None
+
+    def prompt_contexts(self) -> tuple[str, ...]:
+        if self.prompt_order is None:
+            return self.contexts
+        if sorted(self.prompt_order) != list(range(len(self.contexts))):
+            raise ValueError("prompt_order must be a permutation of contexts")
+        return tuple(self.contexts[i] for i in self.prompt_order)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +84,7 @@ class FailureSlice:
 
 
 # --------------------------------------------------------------------------- #
-# Synthetic world: 12 fictional companies, fully self-authored
+# Synthetic world: 24 fictional companies, fully self-authored
 # --------------------------------------------------------------------------- #
 # (name, founded_year, founder, state, product, ship_year, raised_millions, sector)
 
@@ -77,6 +101,18 @@ COMPANIES = (
     ("Juniper Carto", 2010, "Dorothy Vaughan", "Colorado", "field-mapping software", 2013, 33, "software"),
     ("Keystone Sailworks", 1992, "Mary Jackson", "Maine", "racing sails", 1995, 8, "marine"),
     ("Lumenforge", 2016, "Radia Perlman", "New York", "laser welders", 2018, 61, "manufacturing"),
+    ("Northwind Analytics", 2011, "Ida Rhodes", "Illinois", "supply-chain forecasts", 2014, 27, "software"),
+    ("Ochre Ceramics", 1989, "Evelyn Boyd Granville", "New Mexico", "kiln-fired tiles", 1992, 14, "materials"),
+    ("Pallas Instruments", 2003, "Maryam Mirzakhani", "Massachusetts", "mass spectrometers", 2006, 58, "instruments"),
+    ("Quarry Lane Brewing", 1996, "Annie Easley", "Wisconsin", "sour ales", 1998, 6, "beverages"),
+    ("Redwood Logistics", 2000, "Karen Uhlenbeck", "California", "freight routing", 2002, 44, "logistics"),
+    ("Sable Aerospace", 2007, "Mae Jemison", "Alabama", "composite airframes", 2010, 82, "aerospace"),
+    ("Tessellate Software", 2014, "Shafi Goldwasser", "New York", "geometry kernels", 2016, 21, "software"),
+    ("Umbra Metrology", 2009, "Ingrid Daubechies", "Colorado", "laser trackers", 2012, 37, "metrology"),
+    ("Verdant Agritech", 2013, "Lynn Conway", "Iowa", "soil sensors", 2015, 29, "agriculture"),
+    ("Wexford Marine", 1991, "Barbara McClintock", "Rhode Island", "tidal turbines", 1994, 19, "marine"),
+    ("Xanthe Fabrics", 1985, "Mary Cartwright", "Georgia", "flame-resistant cloth", 1988, 11, "apparel"),
+    ("Yarrow Health", 2017, "Jennifer Doudna", "Minnesota", "diagnostic swabs", 2019, 47, "health"),
 )
 
 # Filler context pool for lost-in-the-middle: plausible but irrelevant news.
@@ -115,6 +151,9 @@ def chunk_boundary_slice() -> FailureSlice:
     Retrieval is perfect (both halves of the fact are in the window) but the
     fact sentence is split across two chunks, so no single chunk contains the
     gold fact. The answer is unaffected — the generator sees the year.
+
+    This is a metric **false alarm**, not a blind spot: recall and MRR collapse
+    while the system still answers correctly.
     """
     control: list[EngineeredQuery] = []
     engineered: list[EngineeredQuery] = []
@@ -144,7 +183,7 @@ def chunk_boundary_slice() -> FailureSlice:
         )
     return FailureSlice(
         name="chunk_boundary",
-        diagnostic="Does recall@k catch a gold fact split across two retrieved chunks?",
+        diagnostic="Does recall@k falsely flag a split fact whose answer is still present?",
         control=tuple(control),
         engineered=tuple(engineered),
     )
@@ -154,7 +193,7 @@ def false_neighbor_slice() -> FailureSlice:
     """
     A semantically adjacent but factually irrelevant chunk (same market,
     different company) ranks above the true context. Same answers, same
-    window, different order.
+    window size, different order.
     """
     control: list[EngineeredQuery] = []
     engineered: list[EngineeredQuery] = []
@@ -235,22 +274,25 @@ def retrieval_miss_slice() -> FailureSlice:
 
 def lost_in_middle_slice() -> FailureSlice:
     """
-    The evidence chunk is embedded in a run of irrelevant fillers — first
-    (control) vs. fifth (engineered). Retrieval metrics see the fact either
-    way; only the position of the evidence within the window changes.
-    Answers are left to the real generator (Liu et al. 2024).
+    The evidence chunk is first in the retrieval ranking in **both** arms; only
+    its position in the rendered prompt changes (first vs fifth of nine).
+
+    Retrieval metrics are therefore identical by construction. The answer is
+    left to the real generator (Liu et al. 2024): if correctness does not drop,
+    the phenomenon is absent and the matrix says so.
     """
     control: list[EngineeredQuery] = []
     engineered: list[EngineeredQuery] = []
     for name, year, founder, state, *rest in COMPANIES:
         fact = _fact(name, year, founder, state)
         query = f"In what year was {name} founded?"
+        window = (fact, *FILLERS[:8])
         control.append(
             EngineeredQuery(
                 query=query,
                 gold_answer=f"{year}",
                 gold_facts=(fact,),
-                contexts=(fact, *FILLERS[:8]),
+                contexts=window,
             )
         )
         engineered.append(
@@ -258,12 +300,14 @@ def lost_in_middle_slice() -> FailureSlice:
                 query=query,
                 gold_answer=f"{year}",
                 gold_facts=(fact,),
-                contexts=(*FILLERS[:4], fact, *FILLERS[4:8]),
+                contexts=window,
+                # Same rank for the metrics; context 0 renders fifth.
+                prompt_order=(1, 2, 3, 4, 0, 5, 6, 7, 8),
             )
         )
     return FailureSlice(
         name="lost_in_middle",
-        diagnostic="Does answer correctness drop when the evidence sits mid-window?",
+        diagnostic="Does answer correctness drop when the evidence sits mid-prompt?",
         control=tuple(control),
         engineered=tuple(engineered),
     )
@@ -271,23 +315,33 @@ def lost_in_middle_slice() -> FailureSlice:
 
 def hallucination_slice() -> FailureSlice:
     """
-    The correct context is present, but a parallel sentence about a second
-    company offers a look-alike year the generator might swap in. Control has
-    no distractor. Answers are left to the real generator.
+    A supported-but-wrong answer: the window contains the true fact at rank 1
+    and a contradictory claim about the **same company** at rank 2. Both arms
+    have the same window size and the same rank for the true evidence; only the
+    second context differs. The engineered answer repeats the contradictory
+    claim verbatim, so every claim in it is supported by a retrieved context.
+
+    The answer is pre-authored, so this class tests the metrics: a faithful,
+    context-supported answer can still be factually wrong. If the faithfulness
+    judge ignores support and checks consistency, it will flag the answer
+    anyway; that is a finding about the judge, not a failed experiment.
     """
     control: list[EngineeredQuery] = []
     engineered: list[EngineeredQuery] = []
-    n = len(COMPANIES)
-    for i, (name, year, founder, state, *rest) in enumerate(COMPANIES):
-        partner = COMPANIES[(i + 1) % n]
+    for name, year, founder, state, *rest in COMPANIES:
         fact = _fact(name, year, founder, state)
+        true_ctx = _fact_sentence(name, year, founder, state, "their flagship product")
+        wrong_year = year + 5
+        contradictory = f"{name} was founded in {wrong_year} by {founder} in {state}."
         query = f"In what year was {name} founded?"
         control.append(
             EngineeredQuery(
                 query=query,
                 gold_answer=f"{year}",
                 gold_facts=(fact,),
-                contexts=(_fact_sentence(name, year, founder, state, "their flagship product"),),
+                contexts=(true_ctx, FILLERS[0]),
+                # Full sentence so the claim is attributable: supported and correct.
+                answer=f"{name} was founded in {year}.",
             )
         )
         engineered.append(
@@ -295,15 +349,14 @@ def hallucination_slice() -> FailureSlice:
                 query=query,
                 gold_answer=f"{year}",
                 gold_facts=(fact,),
-                contexts=(
-                    _fact_sentence(name, year, founder, state, "their flagship product"),
-                    f"{partner[0]} was founded in {partner[1]} by {partner[2]}.",
-                ),
+                contexts=(true_ctx, contradictory),
+                # Verbatim from the second context: supported, and wrong.
+                answer=f"{name} was founded in {wrong_year}.",
             )
         )
     return FailureSlice(
         name="hallucination",
-        diagnostic="Does answer correctness drop when a look-alike fact is in context?",
+        diagnostic="Does correctness catch a context-supported wrong answer that faithfulness misses?",
         control=tuple(control),
         engineered=tuple(engineered),
     )
@@ -311,10 +364,14 @@ def hallucination_slice() -> FailureSlice:
 
 def evidence_split_slice() -> FailureSlice:
     """
-    Answering requires combining two facts (funding year + shipped program).
-    Control puts both facts in one context; engineered splits them across two
-    contexts. Both arms contain every gold fact, so retrieval metrics are
-    identical — only the synthesis demand differs.
+    Answering requires combining two facts. Control puts both facts in one
+    context; engineered splits them across two contexts.
+
+    Both arms contain every gold fact, so recall@4/@10 and MRR are identical;
+    recall@1 differs because the engineered window has a second context that
+    the control folds into the first. The class tests whether end-to-end
+    metrics register a synthesis demand that window-level retrieval metrics
+    mostly cannot see.
     """
     control: list[EngineeredQuery] = []
     engineered: list[EngineeredQuery] = []
@@ -341,7 +398,7 @@ def evidence_split_slice() -> FailureSlice:
         )
     return FailureSlice(
         name="evidence_split",
-        diagnostic="Do retrieval metrics notice that the answer requires two sources to combine?",
+        diagnostic="Do end-to-end metrics notice a synthesis demand retrieval metrics cannot see?",
         control=tuple(control),
         engineered=tuple(engineered),
     )

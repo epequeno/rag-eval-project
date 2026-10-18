@@ -99,3 +99,56 @@ def test_cell_roundtrip_preserves_rows_and_header(tmp_path):
     assert header["n_rows"] == 2
     assert ceiling == 0.75
     assert loaded == rows  # dataclass equality: null and non-null rows both survive
+
+def test_incremental_write_is_readable_after_each_row(tmp_path):
+    from sweep import append_row, write_header
+
+    config = make_config()
+    path = tmp_path / f"{config.id}.jsonl"
+    rows = [
+        evaluate_instance(
+            make_query(text="q1", facts=("fact one",)),
+            [make_retrieved("fact one is here", rank=1)],
+            "answer",
+            config_id=config.id,
+            query_id=0,
+        ),
+        evaluate_instance(
+            make_query(text="q2", is_null=True),
+            [],
+            "Insufficient information.",
+            config_id=config.id,
+            query_id=1,
+        ),
+    ]
+    write_header(path, config, 0.75, "chunk_size", "512", len(rows), {"judge": {"model": "m"}})
+    append_row(path, rows[0])
+    header, ceiling, loaded = read_cell(path)
+    assert header["provenance"]["judge"]["model"] == "m"
+    assert ceiling == 0.75
+    assert loaded == rows[:1]  # a crash here loses nothing already measured
+
+    append_row(path, rows[1])
+    _header, _ceiling, loaded = read_cell(path)
+    assert loaded == rows
+
+
+def test_query_set_hash_is_order_sensitive():
+    from sweep import query_set_sha
+
+    a = make_query(text="alpha")
+    b = make_query(text="beta")
+    assert query_set_sha([a, b]) == query_set_sha([a, b])
+    assert query_set_sha([a, b]) != query_set_sha([b, a])
+
+
+def test_provenance_records_dataset_and_judge(tmp_path):
+    from sweep import provenance, query_set_sha
+
+    config = make_config()
+    queries = [make_query(text="alpha")]
+    data = provenance(config, queries)
+    assert data["dataset"]["revision"]
+    assert data["judge"]["model"] == config.judge
+    assert data["query_set_sha"] == query_set_sha(queries)
+    assert data["query_count"] == 1

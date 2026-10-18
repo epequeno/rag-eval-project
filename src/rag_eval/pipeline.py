@@ -189,6 +189,16 @@ class Index:
             raise ValueError(
                 f"{self.vectors.shape[0]} vectors for {len(self.chunks)} chunks"
             )
+        # DenseRetriever treats a dot product as cosine similarity, which is only
+        # true for unit rows. An unnormalized embedder would silently change the
+        # ranking instead of failing.
+        if self.vectors.size:
+            norms = np.linalg.norm(self.vectors, axis=1)
+            if not np.allclose(norms, 1.0, atol=1e-3):
+                raise ValueError(
+                    "index vectors must be L2-normalized; "
+                    f"norms span {norms.min():.4f}..{norms.max():.4f}"
+                )
 
     @classmethod
     def build(
@@ -638,8 +648,12 @@ class BM25Retriever:
         query_tokens = self._bm25s.tokenize(
             query, stopwords=self.stopwords, show_progress=False
         )
+        # Filter *before* truncating to k. Retrieving k and then dropping
+        # filtered hits can return fewer than k results even when more
+        # qualifying documents exist, while DenseRetriever filters globally —
+        # the two legs would not be comparable under the recency axis.
         results, scores = self._bm25.retrieve(
-            query_tokens, k=k, show_progress=False
+            query_tokens, k=len(chunks), show_progress=False
         )
 
         out: list[Retrieved] = []
@@ -655,6 +669,8 @@ class BM25Retriever:
                     chunk=chunk, score=float(score), rank=len(out) + 1, source=self.source
                 )
             )
+            if len(out) >= k:
+                break
         return out
 
 
@@ -841,10 +857,17 @@ class PromptGenerator:
             },
         )
 
+    @staticmethod
+    def prompt_id() -> str:
+        """Identity of the generator template, independent of model/client."""
+        prompt_hash = hashlib.sha256(GENERATOR_TEMPLATE.encode()).hexdigest()[:12]
+        return f"sha256:{prompt_hash}"
+
     @property
     def id(self) -> str:
-        prompt_hash = hashlib.sha256(GENERATOR_TEMPLATE.encode()).hexdigest()[:12]
-        return f"{self.model}:t={self.temperature}:prompt={prompt_hash}:order={self.order}"
+        return (
+            f"{self.model}:t={self.temperature}:prompt={self.prompt_id()}:order={self.order}"
+        )
 
     def generate(self, query: str, contexts: list[str]) -> str:
         prompt = GENERATOR_TEMPLATE.format(
@@ -891,6 +914,8 @@ class PipelineConfig:
     char_budget: int | None
     generator: str
     generator_prompt: str
+    judge: str = ""
+    dataset_revision: str = ""
 
     @property
     def id(self) -> str:

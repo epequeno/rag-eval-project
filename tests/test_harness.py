@@ -1,5 +1,5 @@
 """Harness: row schema, refusal handling, per-instance measurement, run_config
-order of operations, and null-query bookkeeping."""
+order of operations, candidate vs window metrics, and null-query bookkeeping."""
 
 from datetime import UTC, datetime
 
@@ -16,9 +16,12 @@ from helpers import (
 from rag_eval import harness as harness_mod
 from rag_eval.harness import (
     InstanceResult,
+    answered_rows,
+    coverage_summary,
     evaluate_instance,
     is_refusal,
     null_summary,
+    query_fingerprint,
     retrieval_metric_names,
     run_config,
 )
@@ -30,11 +33,17 @@ NULL_QUERY = make_query(is_null=True)
 def test_retrieval_metric_names():
     assert retrieval_metric_names((1, 4, 10)) == [
         "recall@1",
+        "hits@1",
         "ndcg@1",
+        "map@1",
         "recall@4",
+        "hits@4",
         "ndcg@4",
+        "map@4",
         "recall@10",
+        "hits@10",
         "ndcg@10",
+        "map@10",
         "mrr",
     ]
 
@@ -66,7 +75,28 @@ def test_evaluate_instance_non_null_without_judge():
     assert row.query_id == 3
     assert row.question_type == "inference"
     assert row.is_null is False
+    assert row.refused is False
+    assert row.answered is True
+    assert row.query_sha == query_fingerprint(QUERY.query)
     assert row.n_candidates == 1
+    assert row.candidate_metrics is None
+
+
+def test_evaluate_instance_measures_candidates_separately_from_the_window():
+    window = [make_retrieved("The company was founded in 1999.", rank=1)]
+    candidates = window + [make_retrieved("It raised 10 million.", rank=2)]
+    row = evaluate_instance(QUERY, window, "answer", candidates=candidates)
+    assert row.metrics["recall@10"] == pytest.approx(0.5)
+    assert row.candidate_metrics["recall@10"] == pytest.approx(1.0)
+    assert row.candidate_chunk_ids == tuple(item.chunk.chunk_id for item in candidates)
+    assert row.n_candidates == 2
+
+
+def test_evaluate_instance_flags_a_false_refusal_on_an_answerable_query():
+    row = evaluate_instance(QUERY, [make_retrieved("x", rank=1)], "Insufficient information.")
+    assert row.refused is True
+    assert row.answered is False
+    assert row.refusal_correct is None  # only null queries have a refusal label
 
 
 def test_evaluate_instance_with_judge_uses_judge_scores():
@@ -91,6 +121,7 @@ def test_evaluate_instance_null_query_skips_all_metrics():
     row = evaluate_instance(NULL_QUERY, [], "Insufficient information.", judge=judge, query_id=7)
     assert row.is_null is True
     assert row.refusal_correct is True
+    assert row.refused is True
     assert row.metrics["recall@1"] is None
     assert row.metrics["faithfulness"] is None
     assert judge.calls == []  # a refusal needs no model scoring
@@ -99,6 +130,7 @@ def test_evaluate_instance_null_query_skips_all_metrics():
 def test_evaluate_instance_null_query_wrong_answer():
     row = evaluate_instance(NULL_QUERY, [], "Some answer", query_id=8)
     assert row.refusal_correct is False
+    assert row.refused is False
 
 
 def test_evaluate_instance_non_null_requires_gold_facts():
@@ -132,6 +164,7 @@ def test_run_config_end_to_end_with_stubs():
     }
     retriever = StubRetriever(candidates)
     seen: dict[str, list[str]] = {}
+    streamed: list[int] = []
 
     def generate(query, contexts):
         seen[query] = contexts
@@ -144,14 +177,28 @@ def test_run_config_end_to_end_with_stubs():
         generator=StubGenerator(generate),
         config=config,
         judge=RecordingJudge(values={"faithfulness": 0.5}),
+        on_row=lambda row: streamed.append(row.query_id),
     )
     assert len(rows) == 2
     assert [row.query_id for row in rows] == [0, 1]
+    assert streamed == [0, 1]
     assert [row.config_id for row in rows] == [config.id, config.id]
     assert rows[0].metrics["faithfulness"] == 0.5
     assert rows[1].refusal_correct is True
     assert rows[0].n_candidates == 2
+    assert rows[0].candidate_metrics["recall@10"] == pytest.approx(1.0)
     assert seen["q1"] == ["fact1 alpha is here", "noise"]
+
+
+def test_run_config_start_query_id_keeps_ids_aligned():
+    rows = run_config(
+        [make_query()],
+        retriever=StubRetriever({}),
+        generator=StubGenerator(),
+        config=make_config(),
+        start_query_id=10,
+    )
+    assert rows[0].query_id == 10
 
 
 def test_run_config_passes_parsed_cutoff_to_retriever():
@@ -182,6 +229,8 @@ def test_run_config_uses_reranked_candidates():
     )
     assert rows[0].context_chunk_ids == ("c2", "c1")  # the reranker reordered them
     assert rows[0].n_candidates == 2
+    # Candidate order is pre-rerank, so candidate metrics see c1 before c2.
+    assert rows[0].candidate_chunk_ids == ("c1", "c2")
 
 
 def test_run_config_rejects_reranker_config_mismatch():
@@ -210,6 +259,7 @@ def test_null_summary():
             answer="",
             refusal_correct=refusal_correct,
             n_candidates=0,
+            refused=bool(refusal_correct),
         )
 
     non_null = InstanceResult(
@@ -218,7 +268,7 @@ def test_null_summary():
         question_type="inference",
         is_null=False,
         metrics={},
-        answer="",
+        answer="an answer",
         refusal_correct=None,
         n_candidates=0,
     )
@@ -227,3 +277,23 @@ def test_null_summary():
     assert null_summary([non_null]) == (0, None)
     assert null_summary([null_row(True), null_row(True), null_row(False)]) == (3, 2 / 3)
     assert null_summary([non_null, null_row(True)]) == (1, 1.0)
+
+
+def test_coverage_summary_counts_answerable_queries_only():
+    answered = InstanceResult(
+        query_id=1, config_id="c", question_type="inference", is_null=False,
+        metrics={}, answer="yes", refusal_correct=None, n_candidates=1, refused=False,
+    )
+    refused = InstanceResult(
+        query_id=2, config_id="c", question_type="inference", is_null=False,
+        metrics={}, answer="Insufficient information.", refusal_correct=None,
+        n_candidates=1, refused=True,
+    )
+    null = InstanceResult(
+        query_id=3, config_id="c", question_type="null_query", is_null=True,
+        metrics={}, answer="Insufficient information.", refusal_correct=True,
+        n_candidates=0, refused=True,
+    )
+    assert coverage_summary([answered, refused, null]) == (2, 0.5)
+    assert [row.query_id for row in answered_rows([answered, refused, null])] == [1]
+    assert coverage_summary([null]) == (0, None)

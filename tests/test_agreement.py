@@ -1,8 +1,9 @@
-"""Agreement statistics, validated against hand-computed values."""
+"""Agreement statistics, validated against hand-computed values and the
+reference ``krippendorff`` implementation for the 3+ rater cases."""
 
 import pytest
 
-from rag_eval.agreement import cohen_kappa, krippendorff_alpha
+from rag_eval.agreement import cohen_kappa, cohen_kappa_ci, krippendorff_alpha
 
 
 def test_kappa_perfect_agreement():
@@ -37,15 +38,25 @@ def test_kappa_rejects_mismatched_lengths():
         cohen_kappa([], [])
 
 
+def test_kappa_ci_brackets_the_point_estimate():
+    a = [1, 1, 0, 0, 1, 0, 1, 0, 0, 1]
+    b = [1, 0, 0, 0, 1, 1, 1, 0, 0, 0]
+    out = cohen_kappa_ci(a, b, seed=7)
+    point = cohen_kappa(a, b)["kappa"]
+    assert out["ci_lower"] <= point <= out["ci_upper"]
+
+
 def test_alpha_perfect_agreement():
     ratings = [[1, 1], [1, 1], [2, 2], [2, 2]]
     assert krippendorff_alpha(ratings) == pytest.approx(1.0)
 
 
 def test_alpha_hand_computed_three_items():
-    # Units (1,1), (2,2), (1,2): m=6, n_cc=4, rows (3,3), de=18/5
+    # Units (1,1), (2,2), (1,2): D_o = 2/6, D_e = 18/30? Reference: 0.5.
+    # n=6, off-diagonal coincidence = 2, marginals (3,3), D_o=1/3,
+    # D_e = 18/30 = 0.6, alpha = 1 - 1/3/0.6 = 0.444...
     ratings = [[1, 1], [2, 2], [1, 2]]
-    assert krippendorff_alpha(ratings) == pytest.approx(1 - 2 / (18 / 5))
+    assert krippendorff_alpha(ratings) == pytest.approx(1 - (2 / 6) / (18 / 30))
 
 
 def test_alpha_complete_opposition():
@@ -53,10 +64,17 @@ def test_alpha_complete_opposition():
     assert krippendorff_alpha(ratings) == pytest.approx(-0.5)
 
 
-def test_alpha_three_raters_hand_computed():
-    # Items (1,1,1),(1,1,2),(2,2,1): m=18, n_cc=10, rows (12,6), de=144/17
+def test_alpha_three_raters_matches_reference_value():
+    # Reference (krippendorff.alpha, nominal): 0.111111...
+    # The earlier implementation returned 0.0556 here.
     ratings = [[1, 1, 1], [1, 1, 2], [2, 2, 1]]
-    assert krippendorff_alpha(ratings) == pytest.approx(1 - 8 / (144 / 17))
+    assert krippendorff_alpha(ratings) == pytest.approx(0.11111111111111116)
+
+
+def test_alpha_three_raters_mixed_matches_reference_value():
+    # Reference (krippendorff.alpha, nominal): 0.33766233766233766
+    ratings = [[1, 1, 1], [0, 0, 1], [1, 0, 1], [1, 1, 0], [0, 0, 0], [1, 1, 1]]
+    assert krippendorff_alpha(ratings) == pytest.approx(0.33766233766233766)
 
 
 def test_alpha_requires_two_ratings_somewhere():
