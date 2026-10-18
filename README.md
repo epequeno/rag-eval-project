@@ -3,9 +3,9 @@
 An evaluation-first RAG project: a three-part series that measures a RAG pipeline carefully, then
 shows what the metrics miss, then questions the measuring tools themselves.
 
-**Evaluation is the project. The pipeline is deliberately boring.** Building "embed → vector DB →
-chatbot" demonstrates that you can follow a tutorial. Knowing where the system breaks, why, and
-what each metric actually measures is the part worth writing down.
+**Evaluation is the project. The pipeline is deliberately boring** — embed → vector DB →
+chatbot, by design. The contribution is the measurement: where the system breaks, why, and
+what each metric actually measures.
 
 ## The arc
 
@@ -271,5 +271,4 @@ measures remain the point of the project.
 
 ## License
 
-No `LICENSE` file is included, so the default applies: all rights reserved. The plan and the metric
-definitions are here to be read. The end-to-end metric names follow the RAGAS family by convention.
+MIT — see [`LICENSE`](LICENSE). The end-to-end metric names follow the RAGAS family by convention.
