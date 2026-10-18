@@ -18,3 +18,8 @@ results/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Internal audit/plan notes — working documents, not published. The same filename
+# had to be stripped from rag-control-cite's published history after being committed
+# there; this rule stops that repeating.
+docs/audit-fix-plan-*.md
