@@ -434,6 +434,12 @@ def step_report(name: str) -> int:
         print(text)
         lines.append(text)
 
+    def emit_table(header: list[str], rows: list[list[str]]) -> None:
+        emit("| " + " | ".join(header) + " |")
+        emit("|" + "|".join("---" for _ in header) + "|")
+        for row in rows:
+            emit("| " + " | ".join(row) + " |")
+
     emit(f"# Phase 3 judge meta-evaluation ({name}, n={len(qids)})")
     emit()
     unstratified = sum(1 for row in sample if "stratum" not in row)
@@ -448,35 +454,47 @@ def step_report(name: str) -> int:
         emit(f"sample strata: {strata}")
     emit()
 
-    emit("== 1. judge vs hand-labeled gold (default arm, gpt-4o-mini answers)")
-    emit(f"{'judge':<20}{'criterion':<20}{'kappa':>7}{'95% CI':>17}{'acc':>7}{'sens':>7}{'spec':>7}{'gold_rate':>10}")
+    emit("## 1. Judge vs hand-labeled gold (default arm, gpt-4o-mini answers)")
+    emit()
+    gold_rows: list[list[str]] = []
     for judge in JUDGES:
         for criterion in CRITERIA:
             scores = _default_rows(judgments, judge, "gpt-4o-mini", criterion, name)
             g = [gold[q][criterion] for q in qids]
             b = [_bin(scores[q]) for q in qids]
             gold_rate = sum(g) / len(g)
+            accuracy = sum(x == y for x, y in zip(b, g)) / len(g)
             if len(set(g)) < 2:
-                emit(f"{judge:<20}{criterion:<20}{'undefined':>7}{'(constant gold)':>17}"
-                     f"{sum(x == y for x, y in zip(b, g)) / len(g):>7.3f}{'-':>7}{'-':>7}{gold_rate:>10.3f}")
+                gold_rows.append(
+                    [judge, criterion, "undefined", "(constant gold)",
+                     f"{accuracy:.3f}", "-", "-", f"{gold_rate:.3f}"]
+                )
                 continue
             interval = cohen_kappa_ci(g, b)
             sens, spec = _classification_rates(g, b)
-            ci = f"[{interval['ci_lower']:+.2f},{interval['ci_upper']:+.2f}]".rjust(17)
-            accuracy = sum(x == y for x, y in zip(b, g)) / len(g)
-            emit(
-                f"{judge:<20}{criterion:<20}{_kappa(g, b):>7.3f}{ci}"
-                f"{accuracy:>7.3f}"
-                f"{(sens if sens is not None else float('nan')):>7.3f}"
-                f"{(spec if spec is not None else float('nan')):>7.3f}"
-                f"{gold_rate:>10.3f}"
-            )
+            gold_rows.append([
+                judge,
+                criterion,
+                f"{_kappa(g, b):.3f}",
+                f"[{interval['ci_lower']:+.2f},{interval['ci_upper']:+.2f}]",
+                f"{accuracy:.3f}",
+                "-" if sens is None else f"{sens:.3f}",
+                "-" if spec is None else f"{spec:.3f}",
+                f"{gold_rate:.3f}",
+            ])
+    emit_table(
+        ["judge", "criterion", "kappa", "95% CI", "acc", "sens", "spec", "gold_rate"],
+        gold_rows,
+    )
 
     emit()
-    emit("== 2. judge x judge agreement (kappa, default arm)")
-    emit(f"{'judge':<20}" + "".join(f"{j:>22}" for j in JUDGES))
+    emit("## 2. Judge x judge agreement (default arm)")
+    emit()
+    emit("Each cell is `kappa/accuracy` on the binary labels: faithfulness, then answer_correctness.")
+    emit()
+    agreement_rows: list[list[str]] = []
     for j1 in JUDGES:
-        row = f"{j1:<20}"
+        row_cells = [j1]
         for j2 in JUDGES:
             kf, kc = [], []
             for criterion in CRITERIA:
@@ -484,12 +502,14 @@ def step_report(name: str) -> int:
                 b = [_bin(_default_rows(judgments, j2, "gpt-4o-mini", criterion, name)[q]) for q in qids]
                 k = _kappa(a, b)
                 (kf if criterion == "faithfulness" else kc).append(k)
-            row += f"{kf[0]:>9.3f}/{kc[0]:<9.3f}"
-        emit(row)
+            row_cells.append(f"{kf[0]:.3f}/{kc[0]:.3f}")
+        agreement_rows.append(row_cells)
+    emit_table(["judge", *JUDGES], agreement_rows)
 
     emit()
-    emit("== 3. content-fixed self-preference (same gpt answer, claimed author varies)")
-    emit(f"{'judge':<20}{'criterion':<20}{'gpt label':>11}{'claude label':>13}{'delta':>8}")
+    emit("## 3. Content-fixed self-preference (same gpt answer, claimed author varies)")
+    emit()
+    pref_rows: list[list[str]] = []
     for judge in JUDGES:
         for criterion in CRITERIA:
             g = _variant_rows(judgments, judge, "gpt-4o-mini", criterion, "attribution:openai/gpt-4o-mini", name)
@@ -499,20 +519,25 @@ def step_report(name: str) -> int:
             common = sorted(set(g) & set(c))
             mg = sum(g[q] for q in common) / len(common)
             mc = sum(c[q] for q in common) / len(common)
-            emit(f"{judge:<20}{criterion:<20}{mg:>11.3f}{mc:>13.3f}{mg - mc:>+8.3f}")
+            pref_rows.append([judge, criterion, f"{mg:.3f}", f"{mc:.3f}", f"{mg - mc:+.3f}"])
+    emit_table(["judge", "criterion", "gpt label", "claude label", "delta"], pref_rows)
 
     emit()
-    emit("== 4. answer-set difference (NOT self-preference: different answers)")
-    emit(f"{'judge':<20}{'criterion':<20}{'gpt answers':>13}{'claude answers':>15}{'delta':>8}")
+    emit("## 4. Answer-set difference (NOT self-preference: different answers)")
+    emit()
+    set_rows: list[list[str]] = []
     for judge in JUDGES:
         for criterion in CRITERIA:
             g = [_default_rows(judgments, judge, "gpt-4o-mini", criterion, name)[q] for q in qids]
             c = [_default_rows(judgments, judge, "claude-haiku-4.5", criterion, name)[q] for q in qids]
             mg, mc = sum(g) / len(g), sum(c) / len(c)
-            emit(f"{judge:<20}{criterion:<20}{mg:>13.3f}{mc:>15.3f}{mg - mc:>+8.3f}")
+            set_rows.append([judge, criterion, f"{mg:.3f}", f"{mc:.3f}", f"{mg - mc:+.3f}"])
+    emit_table(["judge", "criterion", "gpt answers", "claude answers", "delta"], set_rows)
 
     emit()
-    emit("== 5. prompt framing (gemini, gpt-4o-mini answers)")
+    emit("## 5. Prompt framing (gemini, gpt-4o-mini answers)")
+    emit()
+    framing_rows: list[list[str]] = []
     for criterion in CRITERIA:
         default_scores = _default_rows(judgments, "gemini-2.5-flash", "gpt-4o-mini", criterion, name)
         default_ = [default_scores[q] for q in qids]
@@ -521,13 +546,15 @@ def step_report(name: str) -> int:
             b_def = [_bin(x) for x in default_]
             b_var = [_bin(vals[q]) for q in qids]
             mean_diff = sum(vals[q] - default_scores[q] for q in qids) / len(qids)
-            emit(
-                f"{criterion:<20}{variant:<10}kappa={_kappa(b_def, b_var):.3f} "
-                f"mean_delta={mean_diff:+.3f}"
-            )
+            framing_rows.append([
+                criterion, variant, f"{_kappa(b_def, b_var):.3f}", f"{mean_diff:+.3f}"
+            ])
+    emit_table(["criterion", "variant", "kappa vs default", "mean delta"], framing_rows)
 
     emit()
-    emit("== 6. test-retest (gemini, gpt-4o-mini answers)")
+    emit("## 6. Test-retest (gemini, gpt-4o-mini answers)")
+    emit()
+    retest_rows: list[list[str]] = []
     for temperature in (0.0, 0.7):
         per_qid: dict[str, dict[int, dict[int, float]]] = {criterion: {} for criterion in CRITERIA}
         for j in judgments:
@@ -557,13 +584,18 @@ def step_report(name: str) -> int:
                 if len(per_qid[criterion][q]) == len(avail)
                 and len({round(per_qid[criterion][q][r], 3) for r in avail}) > 1
             )
-            emit(
-                f"t={temperature} {criterion:<20}alpha({len(avail)} runs)={alpha:.3f} "
-                f"flipped_rows={flips}/{len(paired)}"
-            )
+            retest_rows.append([
+                f"{temperature}",
+                criterion,
+                f"{len(avail)}",
+                f"{alpha:.3f}",
+                f"{flips}/{len(paired)}",
+            ])
+    emit_table(["temperature", "criterion", "runs", "alpha", "flipped rows"], retest_rows)
 
     emit()
-    emit("== 7. cross-run drift (original v1 run vs this re-run, same prompt, temperature 0)")
+    emit("## 7. Cross-run drift (original v1 run vs this re-run, same prompt, temperature 0)")
+    emit()
     legacy = [
         j for j in judgments
         if "sample_version" not in j
@@ -573,6 +605,7 @@ def step_report(name: str) -> int:
         and j["run"] == 1
     ]
     if legacy:
+        drift_rows: list[list[str]] = []
         for judge in JUDGES:
             for criterion in CRITERIA:
                 old = {j["query_id"]: j["score"] for j in legacy
@@ -583,12 +616,15 @@ def step_report(name: str) -> int:
                     continue
                 changed = sum(1 for q in common if abs(old[q] - new[q]) > 1e-9)
                 mean_delta = sum(new[q] - old[q] for q in common) / len(common)
-                emit(
-                    f"{judge:<20}{criterion:<20}changed={changed}/{len(common)} "
-                    f"mean_delta={mean_delta:+.3f}"
-                )
+                drift_rows.append([
+                    judge,
+                    criterion,
+                    f"{changed}/{len(common)}",
+                    f"{mean_delta:+.3f}",
+                ])
+        emit_table(["judge", "criterion", "changed", "mean delta"], drift_rows)
     else:
-        emit("no original-run rows present")
+        emit("No original-run rows present.")
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text("\n".join(lines) + "\n")
