@@ -1,21 +1,22 @@
 # Agent Guidelines
 
-## Project Goal
+## Project
 
-An evaluation-first RAG project: measure a RAG pipeline carefully, show what the metrics
-miss, and question the measuring tools themselves. The deliverables are *explained*
-artifacts — blog posts, ADRs, interview answers.
+An evaluation-first RAG project: a reusable metric harness applied to a RAG pipeline in three
+phases — measure it carefully, show what the metrics miss, then question the measuring tools.
 
-## Agent Role
+## Working rules
 
-**Agent-written, owner-directed** (revised 2026-10-12 by the owner's decision; the earlier
-"Steven writes all implementation, agents only advise" constraint is no longer valid).
-Agents implement, test, run, and document. The owner sets scope, makes decisions, and
-reviews. Claims the project makes — findings, numbers, caveats — are still stated
-honestly, including which parts are agent work.
+- Implement, test, run, and document. Scope, decisions, and review stay with the owner, who is
+  accountable for every claim the repository makes.
+- Every claim must be reproducible from a stored artifact in `results/` or `data/`. A number with
+  no run behind it does not belong in a report.
+- State the limit where the claim is made: what the metric does not prove, which slice the number
+  covers, and which parts are unmeasured.
+- `reports/` is generated from stored artifacts. Do not hand-edit a table without saying so, and do
+  not let a committed report drift from the generator that produces it.
 
 ## Documentation
 
-Long-form documentation and plans live in the research vault
-(`~/Dropbox/eapsoftware-research/rag-eval-project/plan.md`); the repository carries the
-code and the README.
+Long-form documentation and plans live outside this repository. The repository carries the code,
+the reports, and the README.

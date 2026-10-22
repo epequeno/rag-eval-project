@@ -36,6 +36,10 @@ These are measurements, not arguments:
   96.4%; that ratio is 95–97% in all ten cells. Every Phase 1 "quality" delta is predominantly a
   refusal-rate delta, so the sweep reports coverage and `correctness|answered` next to the pooled
   mean.
+- **Refusal is right on the queries that should be refused.** Of the 301 unanswerable null queries
+  the baseline correctly refused **298 (98.7%)**; the three misses answered a single letter. Pair
+  that with the 71.3% above and the behaviour reads consistently: the pipeline refuses what it
+  cannot ground, including what it should refuse.
 - **The refusal rate is not uniform by question type.** Inference queries are answered 57.6% of
   the time, comparison queries 17.4%, temporal queries 4.8%. The aggregate hides the pipeline's
   actual failure profile.
@@ -145,6 +149,13 @@ Two views are stored separately:
 Units: all metrics are chunk-level. The dataset's own script ranks documents, so these numbers are
 not directly comparable to the paper's Hits/MAP/MRR table. Normalization matches; the retrieval
 unit does not.
+
+**Refusal.** A response is a refusal when it contains `insufficient information`, case-insensitively
+(`harness.is_refusal`, `REFUSAL_PHRASE`). It is a substring test rather than an equality test
+because the generator varies its phrasing. Coverage is the answered share of *answerable* queries;
+a refusal contributes nothing to judge-backed metrics, and on null queries its correctness is scored
+deterministically by `refusal_correct` instead. Stating the rule matters: without it the answer
+rates in `reports/` cannot be reproduced from the stored rows.
 
 ## Design commitments
 
