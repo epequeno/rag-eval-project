@@ -3,20 +3,23 @@
 `phenomenon` is the paired change in `answer_correctness` (ground truth);
 the `answer_correctness` column itself is marked `T`, not scored as a detector.
 
-`+` caught (metric drops and the answer drops) · `-` blind (answer drops, metric does not) ·
-`!` false alarm (metric drops, answer does not) · `.` neutral (neither drops).
+`+` caught (metric drops significantly and the answer drops) · `-` blind (answer drops, metric does
+not — including a small drop whose CI includes zero) · `!` false alarm (metric drops significantly,
+answer does not) · `~` inverse (metric **rises** while the answer drops) · `.` neutral (neither
+drops). "Significantly" means the 95% bootstrap CI of the paired delta excludes zero.
 
 For retrieval-side classes the perturbation is present by construction; a
 retrieval metric that moves while the answer does not is reported as a false
 alarm because it is not a proxy for user-visible failure.
 
-slice              phenomenon            recall@1            recall@4           recall@10                 mrr        faithfulness    answer_relevance   context_precision  answer_correctness
-chunk_boundary         absent                    !                   !                   !                   !                   .                   .                   .                   T
-false_neighbor         absent                    !                   .                   .                   !                   .                   .                   !                   T
-retrieval_miss        present                    +                   +                   +                   +                   -                   +                   +                   T
-lost_in_middle         absent                    .                   .                   .                   .                   .                   .                   .                   T
-hallucination         present                    -                   -                   -                   -                   -                   -                   -                   T
-evidence_split           weak                    +                   -                   -                   -                   +                   -                   +                   T
+| slice | phenomenon | recall@1 | recall@4 | recall@10 | mrr | faithfulness | answer_relevance | context_precision | answer_correctness |
+|---|---|---|---|---|---|---|---|---|---|
+| chunk_boundary | absent | ! | ! | ! | ! | . | . | . | T |
+| false_neighbor | absent | ! | . | . | ! | . | . | ! | T |
+| retrieval_miss | present | + | + | + | + | - | + | + | T |
+| lost_in_middle | absent | . | . | . | . | . | . | . | T |
+| hallucination | present | - | - | - | - | - | - | ~ | T |
+| evidence_split | weak | + | - | - | - | + | - | + | T |
 
 ## chunk_boundary
 

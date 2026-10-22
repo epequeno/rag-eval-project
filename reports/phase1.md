@@ -4,6 +4,15 @@ All values recomputed from `results/*.jsonl` and `.index_cache/`; no API calls.
 Retrieval metrics use the corrected fact-level nDCG and are computed over the
 prompt window. `cand rec@10` is present only for cells that stored candidates.
 
+**Rows.** 2,255 per cell — the 2,556 rows each sweep produced, minus the 301
+`null_query` rows, which carry no gold facts and are reported under
+*Null-query refusal* below. The README's "2,556 queries" and this table's
+`n=2255` are the same run counted two ways.
+
+**Refusal.** A response is a refusal when it contains `insufficient information`,
+case-insensitively (`harness.is_refusal`, `REFUSAL_PHRASE`). It is a substring test,
+not equality, because the generator varies its phrasing.
+
 | cell | n | answer rate | correctness | corr \| answered | win rec@10 | win nDCG@10 | win MAP@10 | cand rec@10 | median chunks | <10 chunks |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | baseline/dense/1024/128 | 2255 | 28.7% | 0.297 | 0.964 | 0.451 | 0.276 | 0.222 | 0.479 | 9 | 91% |
@@ -33,4 +42,19 @@ prompt window. `cand rec@10` is present only for cells that stored candidates.
 fewer than 10 chunks (so recall@10 was recall-all), while 512-char rows had
 17-26 chunks (so recall@10 was a real top-10). The metrics are not comparable
 across the chunk-size axis; candidate metrics fix that on new runs.
+
+## Null-query refusal (baseline)
+
+| slice | n | correct refusals | refusal accuracy |
+|---|---:|---:|---:|
+| null_query | 301 | 298 | 0.987 |
+
+Of the 301 unanswerable queries the baseline correctly refused **298 (98.7%)**. The three misses
+answered a single letter — `"V"`, `"M"`, `"S"`.
+
+These rows carry no judge-backed metrics: a refusal has no claims to ground, so `refusal_correct` is
+the deterministic correctness metric for them (`harness.null_summary`), and it is deliberately kept
+out of `answer_correctness` rather than folded in. Read alongside the 71.3% refusal rate on
+answerable queries, this is the same behaviour working as intended: the pipeline refuses what it
+cannot ground, including what it should refuse.
 

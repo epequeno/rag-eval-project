@@ -436,10 +436,16 @@ def step_report(name: str) -> int:
 
     emit(f"# Phase 3 judge meta-evaluation ({name}, n={len(qids)})")
     emit()
-    strata = {}
+    unstratified = sum(1 for row in sample if "stratum" not in row)
+    strata: dict[str, int] = {}
     for row in sample:
-        strata[row.get("stratum", "unknown")] = strata.get(row.get("stratum", "unknown"), 0) + 1
-    emit(f"sample strata: {strata}")
+        if "stratum" in row:
+            stratum = row["stratum"]
+            strata[stratum] = strata.get(stratum, 0) + 1
+    if unstratified == len(sample):
+        emit(f"sample strata: unstratified ({len(sample)} rows)")
+    else:
+        emit(f"sample strata: {strata}")
     emit()
 
     emit("== 1. judge vs hand-labeled gold (default arm, gpt-4o-mini answers)")
