@@ -14,6 +14,10 @@ wheels/
 .judge_cache/
 .judge_cache_test/
 results/
+
+# Adjudication page payload — generated from results/ and the chunk cache,
+# and it embeds third-party article text, so it is not published.
+tools/adjudication/data.js
 .DS_Store
 
 # Jupyter checkpoints

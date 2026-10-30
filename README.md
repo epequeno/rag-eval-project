@@ -23,7 +23,9 @@ are unreliable.
 data in `results/` — every number below comes from a completed run, and none of it is written up
 yet; the interpretation is the remaining work. `results/` stays gitignored. The hand-labeled artifacts are
 committed under `data/labels/`, because a label set that exists only on one machine is not
-reproducible. Query counts differ by view, deliberately: the sweep ran all **2,556** queries, while
+reproducible. `phase3_sample_v2.jsonl` (n=120, strata 57/40/23) is committed for the same
+reason; it is the pending hand-label set, and `tools/adjudication/` is the page for producing
+those labels. Query counts differ by view, deliberately: the sweep ran all **2,556** queries, while
 the Phase 1 tables cover the **2,255** answerable ones. The 301 null queries test refusal
 robustness and have no gold answer to score, so they are excluded from the ablations — which is
 why `reports/phase1.md` shows `n = 2255` against a table that says 2,556.
@@ -115,6 +117,10 @@ scripts/
                          framing, content-fixed attribution, test-retest)
                          -> reports/phase3.md
 
+tools/
+  adjudication/          static reviewer page — one trace per screen, open coding first,
+                         judge verdicts hidden behind a reveal; exports hand labels as JSONL
+
 tests/
   helpers.py             shared fake components + builders (no network, no keys)
   test_*.py              one file per module plus a smoke.py regression test
@@ -173,6 +179,10 @@ These are the decisions that keep a later re-run cheap rather than an expensive 
   are Protocols and the metric path takes `(query, retrieved_contexts, answer, gold_answer)`.
 - **Two retrieval views and a refusal flag.** Window vs candidate, and coverage vs accuracy, are
   separate columns because conflating them made the first sweep report refusal as quality.
+- **Review interfaces are part of the measurement.** `tools/adjudication/` shows one trace at a
+  time with the retrieved context in rank order and the judge verdicts withheld until the reviewer
+  has coded it in their own words. A human who cannot see what the system did cannot categorise its
+  failures, and a taxonomy shown up front anchors the observation.
 - **Provenance travels with the data.** Cell headers record the dataset revision, judge model and
   parameters, generator template hash, query count and query-set hash, and package versions. Rows
   carry a query fingerprint and candidate ids. Rows are flushed as they are produced, so a crash

@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adjudication — rag-eval-project</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6f6f6a; --border: #e2e1dc;
+    --surface: #f3f2ee; --accent: #2f5d50; --warn: #8a5a1a; --bad: #8f2f2f;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --fg: #e8e7e2; --muted: #94948d; --border: #2e2e33;
+      --surface: #1f1f22; --accent: #7fb3a1; --warn: #c99a54; --bad: #d07a7a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.55 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    display: grid; grid-template-rows: auto 1fr;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 14px 22px; display: flex; align-items: baseline; gap: 18px;
+    position: sticky; top: 0; background: var(--bg); z-index: 10;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  header .spacer { flex: 1; }
+  header button {
+    font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+    background: transparent; color: var(--fg);
+    border: 1px solid var(--border); border-radius: 5px;
+  }
+  header button:hover { border-color: var(--muted); }
+  .meter { width: 132px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
+  .count { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  main { display: grid; grid-template-columns: 292px 1fr; min-height: 0; }
+  nav { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+  .controls { padding: 12px; border-bottom: 1px solid var(--border); }
+  .controls input {
+    width: 100%; font: inherit; font-size: 13px; padding: 7px 9px;
+    background: var(--surface); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 5px; outline: none;
+  }
+  .controls input:focus { border-color: var(--muted); }
+  .tabs { display: flex; gap: 4px; margin-top: 9px; }
+  .tabs button {
+    flex: 1; font: inherit; font-size: 11.5px; padding: 5px 0; cursor: pointer;
+    background: transparent; color: var(--muted);
+    border: 1px solid transparent; border-radius: 4px;
+  }
+  .tabs button[aria-pressed="true"] { color: var(--fg); background: var(--surface); border-color: var(--border); }
+  ol.list { list-style: none; margin: 0; padding: 0; overflow: auto; }
+  ol.list li {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; cursor: pointer;
+  }
+  ol.list li:hover { background: var(--surface); }
+  ol.list li[aria-current="true"] { background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
+  .qtext { font-size: 12.5px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .done { color: var(--accent); }
+
+  section.detail { overflow: auto; padding: 22px 26px 60px; max-width: 900px; }
+  .empty { color: var(--muted); font-size: 13.5px; padding: 40px 0; }
+  .rowline { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .badge {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase;
+    padding: 2px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--muted);
+  }
+  .badge.null { color: var(--warn); border-color: var(--warn); }
+  h2.question { font-size: 17px; line-height: 1.5; font-weight: 500; margin: 0 0 18px; letter-spacing: -0.01em; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .card { border: 1px solid var(--border); border-radius: 6px; padding: 11px 13px; background: var(--surface); }
+  .card h3 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+  .card p { margin: 0; font-size: 14px; line-height: 1.5; word-break: break-word; }
+  .flag { font-family: var(--mono); font-size: 11px; color: var(--bad); margin-left: 8px; }
+
+  h3.sect { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 24px 0 9px; font-weight: 600; }
+  .ctx { border-top: 1px solid var(--border); }
+  .ctx details { border-bottom: 1px solid var(--border); }
+  .ctx summary {
+    padding: 8px 0; cursor: pointer; display: flex; gap: 10px; align-items: baseline;
+    font-size: 12.5px; list-style: none;
+  }
+  .ctx summary::-webkit-details-marker { display: none; }
+  .ctx summary .rank { font-family: var(--mono); color: var(--muted); width: 22px; font-variant-numeric: tabular-nums; }
+  .ctx summary .dom { color: var(--muted); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .ctx pre {
+    margin: 0 0 10px; padding: 10px 12px; background: var(--surface); border-radius: 5px;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6; white-space: pre-wrap;
+    word-break: break-word; max-height: 260px; overflow: auto;
+  }
+  mark.gold { background: transparent; color: var(--accent); font-weight: 600; }
+
+  .judges { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .judges table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .judges th, .judges td { padding: 6px 9px; text-align: left; border-bottom: 1px solid var(--border); }
+  .judges th { background: var(--surface); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .judges td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+  .judges tr.bad td { color: var(--bad); }
+  .judges tr.cnf td { color: var(--warn); }
+
+  .coding { display: grid; gap: 10px; }
+  .verdicts { display: flex; gap: 6px; }
+  .verdicts button {
+    font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 5px;
+  }
+  .verdicts button[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); background: var(--surface); }
+  textarea {
+    width: 100%; min-height: 92px; font: inherit; font-size: 13.5px; line-height: 1.6;
+    padding: 10px 12px; background: var(--surface); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px; resize: vertical; outline: none;
+  }
+  textarea:focus { border-color: var(--muted); }
+  .tagrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tagrow input {
+    font: inherit; font-size: 12.5px; padding: 5px 9px; background: var(--surface);
+    color: var(--fg); border: 1px solid var(--border); border-radius: 4px; outline: none; width: 180px;
+  }
+  .chip {
+    font-family: var(--mono); font-size: 11.5px; padding: 3px 8px; border-radius: 3px;
+    border: 1px solid var(--border); color: var(--muted); cursor: pointer; background: transparent;
+  }
+  .chip.on { color: var(--accent); border-color: var(--accent); }
+  .actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+  .actions button {
+    font: inherit; font-size: 13px; padding: 8px 16px; cursor: pointer;
+    border: 1px solid var(--accent); border-radius: 5px; background: var(--accent); color: var(--bg);
+  }
+  .actions .ghost { background: transparent; color: var(--fg); border-color: var(--border); }
+  .hint { font-size: 11.5px; color: var(--muted); }
+  .timer { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Adjudication</h1>
+  <span class="sub">rag-eval-project · <span id="payloadnote"></span></span>
+  <span class="spacer"></span>
+  <span class="count" id="progress">0 / 0</span>
+  <div class="meter"><i id="meterbar"></i></div>
+  <button id="export" title="Download your coding as JSONL">Export JSONL</button>
+</header>
+
+<main>
+  <nav>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Filter questions…" autocomplete="off">
+      <div class="tabs">
+        <button data-filter="all" aria-pressed="true">All</button>
+        <button data-filter="open" aria-pressed="false">Open</button>
+        <button data-filter="coded" aria-pressed="false">Coded</button>
+      </div>
+    </div>
+    <ol class="list" id="list"></ol>
+  </nav>
+
+  <section class="detail" id="detail">
+    <p class="empty">Select a trace. Open coding first — the metric verdicts stay hidden until you ask for them.</p>
+  </section>
+</main>
+
+<script src="./data.js"></script>
+<script>
+const KEY = "eval-adjudication:rag-eval-project:v1";
+const store = (() => {
+  try { return JSON.parse(localStorage.getItem(KEY) || '{"traces":{}}'); }
+  catch { return { traces: {} }; }
+})();
+const save = () => localStorage.setItem(KEY, JSON.stringify(store));
+
+const S = { filter: "all", q: "", sel: null, openedAt: 0 };
+
+const rec = (id) => store.traces[id] || null;
+const isCoded = (id) => {
+  const r = rec(id);
+  return !!(r && (r.verdict || (r.tags && r.tags.length) || (r.notes && r.notes.trim())));
+};
+const allTags = () => {
+  const m = new Map();
+  for (const r of Object.values(store.traces))
+    for (const t of r.tags || []) m.set(t, (m.get(t) || 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+};
+
+const fmt = (n) => n == null ? "—" : Number(n).toFixed(3);
+const pct = (n) => n == null ? "—" : (Number(n) * 100).toFixed(2) + "%";
+
+function visible() {
+  const q = S.q.toLowerCase();
+  return AUDIT.traces.filter(t => {
+    if (S.filter === "open" && isCoded(t.query_id)) return false;
+    if (S.filter === "coded" && !isCoded(t.query_id)) return false;
+    if (!q) return true;
+    return (t.query + " " + t.answer + " " + t.gold + " " + t.type).toLowerCase().includes(q);
+  });
+}
+
+function renderProgress() {
+  const n = AUDIT.traces.length, c = AUDIT.traces.filter(t => isCoded(t.query_id)).length;
+  document.getElementById("progress").textContent = `${c} / ${n}`;
+  document.getElementById("meterbar").style.width = (n ? (c / n * 100) : 0) + "%";
+}
+
+function renderList() {
+  const ol = document.getElementById("list");
+  ol.innerHTML = "";
+  for (const t of visible()) {
+    const li = document.createElement("li");
+    li.setAttribute("role", "button");
+    li.tabIndex = 0;
+    if (t.query_id === S.sel) li.setAttribute("aria-current", "true");
+    const r = rec(t.query_id);
+    li.innerHTML = `
+      <div class="qtext">${esc(t.query)}</div>
+      <div class="meta">${t.query_id}${isCoded(t.query_id) ? ' <span class="done">✓</span>' : ''}</div>
+      <div class="meta" style="grid-column:1/-1">${t.type.replace(/_/g, ' ')} · ${t.contexts.length} ctx</div>`;
+    const go = () => select(t.query_id);
+    li.addEventListener("click", go);
+    li.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    ol.appendChild(li);
+  }
+  if (!visible().length) ol.innerHTML = `<li><span class="hint">No match.</span></li>`;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function select(id) {
+  S.sel = id;
+  S.openedAt = performance.now();
+  renderList();
+  renderDetail();
+}
+
+function renderDetail() {
+  const t = AUDIT.traces.find(x => x.query_id === S.sel);
+  const el = document.getElementById("detail");
+  if (!t) { el.innerHTML = `<p class="empty">Select a trace.</p>`; return; }
+  const keepScroll = el.dataset.qid === String(t.query_id);
+  const savedScroll = el.scrollTop;
+  el.dataset.qid = String(t.query_id);
+  const r = rec(t.query_id) || {};
+  const tags = r.tags || [];
+  const known = allTags();
+
+  el.innerHTML = `
+    <div class="rowline">
+      <span class="meta" style="font-size:12px">#${t.query_id}</span>
+      <span class="badge${t.is_null ? ' null' : ''}">${t.is_null ? 'null query' : t.type.replace(/_/g, ' ')}</span>
+      <span class="hint">${t.contexts.length} retrieved chunks</span>
+      <span class="spacer" style="flex:1"></span>
+      <span class="timer" id="timer">0:00</span>
+    </div>
+
+    <h2 class="question">${esc(t.query)}</h2>
+
+    <div class="pair">
+      <div class="card"><h3>Gold answer</h3><p>${esc(t.gold || "—")}</p></div>
+      <div class="card"><h3>Model answer</h3><p>${esc(t.answer || "—")}</p></div>
+    </div>
+
+    <h3 class="sect">Retrieved context · rank order</h3>
+    <div class="hint" style="margin-bottom:6px">
+      <button class="chip ghost" id="expandall" type="button">Expand all</button>
+    </div>
+    <div class="ctx" id="ctx"></div>
+
+    <h3 class="sect">Coding</h3>
+    <div class="coding">
+      <div class="verdicts" role="group" aria-label="Verdict">
+        ${["correct", "incorrect", "unsure"].map(v =>
+          `<button type="button" data-verdict="${v}" aria-pressed="${r.verdict === v}">${v}</button>`).join("")}
+      </div>
+      <textarea id="notes" placeholder="Open coding — what went wrong, in your words. Do not name a category yet.">${esc(r.notes || "")}</textarea>
+      <div class="tagrow" id="tagrow"></div>
+      <div class="actions">
+        <button type="button" id="savebtn">Save and next</button>
+        <span class="hint">j / k to move · s to save</span>
+      </div>
+    </div>
+
+    <h3 class="sect">Metric verdicts · ${AUDIT.cells.length} configs</h3>
+    <div id="judgeslot"></div>`;
+
+  // contexts
+  const ctx = document.getElementById("ctx");
+  t.contexts.forEach((c, i) => {
+    const d = document.createElement("details");
+    d.innerHTML = `
+      <summary>
+        <span class="rank">${i + 1}</span>
+        <span class="dom">${esc(host(c.doc) || "unknown source")}</span>
+        <span class="meta">${c.text.length.toLocaleString()} ch</span>
+      </summary>
+      <pre>${esc(c.text)}</pre>`;
+    ctx.appendChild(d);
+  });
+  document.getElementById("expandall").addEventListener("click", () => {
+    const anyClosed = [...ctx.querySelectorAll("details")].some(d => !d.open);
+    ctx.querySelectorAll("details").forEach(d => d.open = anyClosed);
+    document.getElementById("expandall").textContent = anyClosed ? "Collapse all" : "Expand all";
+  });
+
+  // tags
+  const row = document.getElementById("tagrow");
+  const paintTags = () => {
+    row.innerHTML = "";
+    for (const [tag, n] of known.slice(0, 8)) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip" + ((rec(t.query_id)?.tags || []).includes(tag) ? " on" : "");
+      b.textContent = `${tag} ${n}`;
+      b.addEventListener("click", () => toggleTag(tag));
+      row.appendChild(b);
+    }
+    const input = document.createElement("input");
+    input.placeholder = known.length ? "New tag…" : "Tag this failure…";
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter" && input.value.trim()) {
+        e.preventDefault();
+        toggleTag(input.value.trim());
+      }
+    });
+    row.appendChild(input);
+  };
+  paintTags();
+
+  // notes persist on input, so a verdict toggle or tag click cannot discard them
+  const notesEl = document.getElementById("notes");
+  notesEl.addEventListener("input", () => {
+    const cur = rec(t.query_id) || { verdict: null, tags: [], seconds: 0 };
+    const wasCoded = isCoded(t.query_id);
+    store.traces[t.query_id] = {
+      ...cur,
+      notes: notesEl.value,
+      tags: cur.tags || [],
+      seconds: cur.seconds || 0,
+    };
+    save();
+    renderProgress();
+    if (isCoded(t.query_id) !== wasCoded) renderList();
+  });
+
+  // verdict buttons
+  el.querySelectorAll("[data-verdict]").forEach(b => {
+    b.addEventListener("click", () => {
+      const cur = rec(t.query_id) || {};
+      store.traces[t.query_id] = { ...cur, verdict: b.dataset.verdict, tags: cur.tags || [], notes: cur.notes || "", seconds: cur.seconds || 0 };
+      save(); renderDetail(); renderList(); renderProgress();
+    });
+  });
+
+  // judge reveal
+  const slot = document.getElementById("judgeslot");
+  const reveal = () => {
+    if (!t.metrics) { slot.innerHTML = `<p class="hint">No cell metrics recorded for this query.</p>`; return; }
+    slot.innerHTML = `<div class="judges"><table><thead><tr>
+      <th>config</th><th class="n">acc</th><th class="n">faith</th><th class="n">ctx prec</th><th class="n">recall@10</th><th class="n">nDCG@5</th><th class="n">p95</th>
+      </tr></thead><tbody>
+      ${AUDIT.cells.map(cell => {
+        const m = t.metrics[cell.id];
+        if (!m) return `<tr><td>${esc(cell.axis)} · ${esc(cell.variant)}</td><td class="n" colspan="6">not run</td></tr>`;
+        const ac = m["answer_correctness"];
+        const cls = ac == null ? "" : (ac >= 0.999 ? "" : (ac > 0 ? "cnf" : "bad"));
+        return `<tr class="${cls}">
+          <td>${esc(cell.axis)} · ${esc(cell.variant)}</td>
+          <td class="n">${fmt(ac)}</td><td class="n">${fmt(m["faithfulness"])}</td>
+          <td class="n">${fmt(m["context_precision"])}</td><td class="n">${pct(m["recall@10"])}</td>
+          <td class="n">${fmt(m["ndcg@5"] ?? m["ndcg@10"])}</td><td class="n">${m.p95_ms ?? "—"}</td></tr>`;
+      }).join("")}
+      </tbody></table></div>
+      <p class="hint" style="margin-top:8px">Red: judge says the answer is wrong. Amber: partially credited. Compare against your own verdict above — the disagreement is the finding.</p>`;
+    store.traces[t.query_id] = { ...(rec(t.query_id) || {}), revealed: true };
+    save();
+  };
+  if (r.revealed) reveal();
+  else slot.innerHTML = `<button type="button" class="chip" id="reveal">Reveal metric verdicts</button>`;
+  const rb = document.getElementById("reveal");
+  if (rb) rb.addEventListener("click", () => { reveal(); });
+
+  // save & next
+  document.getElementById("savebtn").addEventListener("click", () => {
+    const cur = store.traces[t.query_id] || {};
+    const secs = Math.round((performance.now() - S.openedAt) / 1000);
+    store.traces[t.query_id] = {
+      ...cur,
+      verdict: cur.verdict || null,
+      notes: document.getElementById("notes").value,
+      tags: cur.tags || [],
+      seconds: (cur.seconds || 0) + secs,
+      revealed: true,
+    };
+    save();
+    const idx = AUDIT.traces.findIndex(x => x.query_id === t.query_id);
+    const next = AUDIT.traces[(idx + 1) % AUDIT.traces.length];
+    select(next.query_id);
+    renderProgress();
+  });
+
+  startTimer();
+  el.scrollTop = keepScroll ? savedScroll : 0;
+}
+
+function host(doc) {
+  if (!doc) return "";
+  try { return new URL(doc).host.replace(/^www\./, ""); } catch { return doc; }
+}
+function toggleTag(tag) {
+  const t = AUDIT.traces.find(x => x.query_id === S.sel);
+  const cur = store.traces[t.query_id] || { verdict: null, notes: "", tags: [], seconds: 0 };
+  const tags = new Set(cur.tags || []);
+  tags.has(tag) ? tags.delete(tag) : tags.add(tag);
+  store.traces[t.query_id] = { ...cur, tags: [...tags] };
+  save();
+  renderDetail();
+  renderList();
+  renderProgress();
+}
+
+let timerHandle = null;
+function startTimer() {
+  if (timerHandle) clearInterval(timerHandle);
+  const t0 = performance.now();
+  const el = document.getElementById("timer");
+  timerHandle = setInterval(() => {
+    if (!document.getElementById("timer")) { clearInterval(timerHandle); return; }
+    const s = Math.round((performance.now() - S.openedAt) / 1000);
+    document.getElementById("timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }, 1000);
+}
+
+// nav
+document.getElementById("search").addEventListener("input", e => { S.q = e.target.value; renderList(); });
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+  S.filter = b.dataset.filter;
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  renderList();
+}));
+
+// keyboard
+document.addEventListener("keydown", e => {
+  if (["TEXTAREA", "INPUT"].includes(document.activeElement.tagName)) return;
+  const list = visible();
+  if (!list.length) return;
+  const i = Math.max(list.findIndex(x => x.query_id === S.sel), 0);
+  if (e.key === "j") select(list[Math.min(i + 1, list.length - 1)].query_id);
+  if (e.key === "k") select(list[Math.max(i - 1, 0)].query_id);
+  if (e.key === "s") document.getElementById("savebtn")?.click();
+});
+
+// export
+document.getElementById("export").addEventListener("click", () => {
+  const rows = AUDIT.traces
+    .filter(t => store.traces[t.query_id])
+    .map(t => ({ query_id: t.query_id, type: t.type, is_null: t.is_null, ...store.traces[t.query_id] }));
+  const blob = new Blob([rows.map(r => JSON.stringify(r)).join("\n") + "\n"], { type: "application/x-ndjson" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "adjudication-rag-eval-project.jsonl";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById("payloadnote").textContent = AUDIT.source_sample;
+renderProgress();
+renderList();
+</script>
+</body>
+</html>
